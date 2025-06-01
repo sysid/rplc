@@ -9,7 +9,7 @@ from rplc.lib.mirror import MirrorManager
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 app = typer.Typer(help="RPLC - Local Override Exchange for git projects")
 
