@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: [ ubuntu-latest ]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    strategy:
+      matrix:
+        python: [ '3.12', '3.13' ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Run tests
+        run: uv run make test
+        working-directory: ${{ github.workspace }}

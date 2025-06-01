@@ -1,4 +1,4 @@
-# LOX - Local Overlays
+# RPLC - Local Overlays
 
 A CLI tool for allowing custom file versions which will not be checked into the main project repository,
 but can rather kept separately in local or private data store and swapped-in/out on demand.
@@ -17,26 +17,26 @@ This allows to have personal configurations and versions without poluting projec
 ## Installation
 
 ```bash
-pip install lox
+pip install rplc
 ```
 
 Or for development:
 
 ```bash
 git clone <repository>
-cd lox
+cd rplc
 uv sync --dev
-uv run lox --help
+uv run rplc --help
 ```
 
 ## Quick Start
 
-1. Create a configuration file (e.g., `lox-config.md`):
+1. Create a configuration file (e.g., `rplc-config.md`):
 
 ```markdown
 # Development
 
-## lox-config
+## rplc-config
 main/resources/application.yml
 main/src/class.java
 scratchdir/
@@ -63,13 +63,13 @@ mirror_proj/
 3. Swap in mirror versions:
 
 ```bash
-lox swap-in --config lox-config.md
+rplc swap-in --config rplc-config.md
 ```
 
 4. Swap back to originals:
 
 ```bash
-lox swap-out --config lox-config.md
+rplc swap-out --config rplc-config.md
 ```
 
 ## Usage
@@ -80,7 +80,7 @@ lox swap-out --config lox-config.md
 Replace original files with mirror versions.
 
 ```bash
-lox swap-in [OPTIONS] [PATH]
+rplc swap-in [OPTIONS] [PATH]
 ```
 
 **Options:**
@@ -92,20 +92,20 @@ lox swap-in [OPTIONS] [PATH]
 **Examples:**
 ```bash
 # Swap all configured files
-lox swap-in
+rplc swap-in
 
 # Swap specific file
-lox swap-in main/resources/application.yml
+rplc swap-in main/resources/application.yml
 
 # Use custom directories
-lox swap-in --proj-dir /path/to/project --mirror-dir /path/to/mirror
+rplc swap-in --proj-dir /path/to/project --mirror-dir /path/to/mirror
 ```
 
 #### `swap-out`
 Restore original files and move modified versions to mirror.
 
 ```bash
-lox swap-out [OPTIONS] [PATH]
+rplc swap-out [OPTIONS] [PATH]
 ```
 
 Uses same options as `swap-in`.
@@ -117,7 +117,7 @@ Configuration files use Markdown format with a specific structure:
 ```markdown
 # Development
 
-## lox-config
+## rplc-config
 path/to/file.txt
 path/to/directory/
 another/file.yml
@@ -129,7 +129,7 @@ ${PROJECT_ROOT}/temp/cache/
 - Paths ending with `/` are treated as directories
 - Paths are relative to project root (unless using environment variables)
 - Code blocks are ignored
-- Only content under `# Development` → `## lox-config` is processed
+- Only content under `# Development` → `## rplc-config` is processed
 - Environment variables are resolved using `$VAR` or `${VAR}` syntax
     - Undefined environment variables are left as-is (no error thrown)
     - Tilde (`~`) expands to user's home directory
@@ -139,9 +139,9 @@ ${PROJECT_ROOT}/temp/cache/
 
 ### Environment Integration
 
-LOX automatically manages the `LOX_SWAPPED` environment variable in `.envrc` files:
+RPLC automatically manages the `RPLC_SWAPPED` environment variable in `.envrc` files:
 
-- **swap-in**: Sets `export LOX_SWAPPED=1`
+- **swap-in**: Sets `export RPLC_SWAPPED=1`
 - **swap-out**: Removes the variable
 
 Disable with `--no-env` flag.
@@ -152,50 +152,50 @@ Disable with `--no-env` flag.
 
 ### Swap-In Process
 
-1. **Backup Original**: Moves original file to `mirror_dir/path.lox.original`
-2. **Create Sentinel**: Copies mirror content to `mirror_dir/path.lox_active`
+1. **Backup Original**: Moves original file to `mirror_dir/path.rplc.original`
+2. **Create Sentinel**: Copies mirror content to `mirror_dir/path.rplc_active`
 3. **Replace Original**: Moves mirror file to original location
-4. **Update Environment**: Sets `LOX_SWAPPED=1` in `.envrc`
+4. **Update Environment**: Sets `RPLC_SWAPPED=1` in `.envrc`
 
 ### Swap-Out Process
 
 1. **Store Changes**: Moves modified file from original location to mirror
-2. **Restore Original**: Moves backup from `mirror_dir/path.lox.original` to original location
+2. **Restore Original**: Moves backup from `mirror_dir/path.rplc.original` to original location
 3. **Cleanup**: Removes sentinel files
-4. **Update Environment**: Removes `LOX_SWAPPED` from `.envrc`
+4. **Update Environment**: Removes `RPLC_SWAPPED` from `.envrc`
 
 ### File Structure During Operation
 
 ```
 project/
 ├── file.txt                          # Active file (mirror content during swap-in)
-└── .envrc                            # Contains LOX_SWAPPED=1 during swap-in
+└── .envrc                            # Contains RPLC_SWAPPED=1 during swap-in
 
 mirror_proj/
 ├── file.txt                          # Modified content after swap-out
-├── file.txt.lox.original             # Backup of original content
-└── file.txt.lox_active               # Sentinel marking active swap
+├── file.txt.rplc.original             # Backup of original content
+└── file.txt.rplc_active               # Sentinel marking active swap
 ```
 ### Swap State  Tracking
 - implemented through **sentinel files**
 
-## 1. Sentinel Files (`.lox_active`)
+## 1. Sentinel Files (`.rplc_active`)
 - **Purpose**: Track which files are currently swapped in
-- **Location**: Mirror directory with `.lox_active` suffix
+- **Location**: Mirror directory with `.rplc_active` suffix
 - **Content**: Copy of the original mirror content
 - **Check**: `sentinel.exists()` determines swap state
 - **Cleanup**: Removed during `swap_out`
 
-## 2. Environment Variable (`LOX_SWAPPED`)
+## 2. Environment Variable (`RPLC_SWAPPED`)
 - **Purpose**: Global state indicator in `.envrc`
-- **Value**: `export LOX_SWAPPED=1` when any files are swapped
+- **Value**: `export RPLC_SWAPPED=1` when any files are swapped
 - **Management**: Automatically added/removed during operations
 - **Usage**: External tools can check this variable
 
 **State Flow:**
 ```
-Normal State:     No sentinel files, no LOX_SWAPPED
-Swapped State:    Sentinel files exist, LOX_SWAPPED=1
+Normal State:     No sentinel files, no RPLC_SWAPPED
+Swapped State:    Sentinel files exist, RPLC_SWAPPED=1
 ```
 
 ## Development
@@ -220,7 +220,7 @@ make format
 ### Project Structure
 
 ```
-src/lox/
+src/rplc/
 ├── bin/
 │   ├── __init__.py
 │   └── cli.py              # CLI interface
