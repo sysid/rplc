@@ -1,6 +1,6 @@
 [project]
 name = "rplc"
-version = "0.2.0"
+version = "0.2.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -14,18 +14,10 @@ dependencies = [
 [project.scripts]
 rplc = "rplc.bin.cli:app"
 
-#[build-system]
-#requires = ["hatchling"]
-#build-backend = "hatchling.build"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
-dependencies = [
-    "typer",
-    "appdirs",
-    "rich",
-]
 
 [tool.uv]
 managed = true  # esable automatic locking and syncing of the project.
@@ -42,6 +34,7 @@ dev = [
     "pytest-cov",
     "pytest-mock",
     "mypy",
+    "build>=1.2.2.post1",
 ]
 
 [tool.hatch.metadata]
@@ -51,7 +44,7 @@ allow-direct-references = true
 packages = ["py"]
 
 [tool.bumpversion]
-current_version = "0.2.0"
+current_version = "0.2.1"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 search = "{current_version}"

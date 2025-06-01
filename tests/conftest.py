@@ -2,6 +2,7 @@
 from pathlib import Path
 import pytest
 
+
 @pytest.fixture
 def test_project(tmp_path: Path) -> tuple[Path, Path]:
     """Create test project structure with separate project and mirror directories"""
@@ -30,6 +31,7 @@ def test_project(tmp_path: Path) -> tuple[Path, Path]:
     (mirror_dir / "scratchdir/note.txt").write_text("mirror note")
 
     return proj_dir, mirror_dir
+
 
 @pytest.fixture
 def test_config_file(tmp_path: Path) -> Path:

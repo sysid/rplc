@@ -9,7 +9,7 @@ from rplc.lib.mirror import MirrorManager
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 app = typer.Typer(help="RPLC - Local Override Exchange for git projects")
 
@@ -20,19 +20,19 @@ def swap_in(
     path: Optional[str] = None,
     proj_dir: Annotated[
         Path,
-        typer.Option("--proj-dir", "-p", help="Project directory containing original files")
+        typer.Option(
+            "--proj-dir", "-p", help="Project directory containing original files"
+        ),
     ] = Path.cwd(),
     mirror_dir: Annotated[
         Path,
-        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files")
+        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files"),
     ] = Path("../mirror_proj"),
     config: Annotated[
-        Path,
-        typer.Option("--config", "-c", help="Path to config file")
+        Path, typer.Option("--config", "-c", help="Path to config file")
     ] = Path("sample.md"),
     no_env: Annotated[
-        bool,
-        typer.Option("--no-env", help="Disable .envrc management")
+        bool, typer.Option("--no-env", help="Disable .envrc management")
     ] = False,
 ) -> None:
     """Swap in mirror versions of files/directories"""
@@ -44,28 +44,29 @@ def swap_in(
         config_file,
         proj_dir=proj_dir.resolve(),
         mirror_dir=mirror_dir.resolve(),
-        manage_env=not no_env
+        manage_env=not no_env,
     )
     manager.swap_in(path)
+
 
 @app.command()
 def swap_out(
     path: Optional[str] = None,
     proj_dir: Annotated[
         Path,
-        typer.Option("--proj-dir", "-p", help="Project directory containing original files")
+        typer.Option(
+            "--proj-dir", "-p", help="Project directory containing original files"
+        ),
     ] = Path.cwd(),
     mirror_dir: Annotated[
         Path,
-        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files")
+        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files"),
     ] = Path("../mirror_proj"),
     config: Annotated[
-        Path,
-        typer.Option("--config", "-c", help="Path to config file")
+        Path, typer.Option("--config", "-c", help="Path to config file")
     ] = Path("sample.md"),
     no_env: Annotated[
-        bool,
-        typer.Option("--no-env", help="Disable .envrc management")
+        bool, typer.Option("--no-env", help="Disable .envrc management")
     ] = False,
 ) -> None:
     """Swap out mirror versions and restore originals"""
@@ -77,7 +78,7 @@ def swap_out(
         config_file,
         proj_dir=proj_dir.resolve(),
         mirror_dir=mirror_dir.resolve(),
-        manage_env=not no_env
+        manage_env=not no_env,
     )
     manager.swap_out(path)
 

@@ -12,6 +12,13 @@ app_root ?= .
 pkg_src =  src/rplc
 tests_src = tests
 
+.PHONY: all
+all: clean build publish  ## Build and publish
+	@echo "--------------------------------------------------------------------------------"
+	@echo "-M- building and distributing"
+	@echo "--------------------------------------------------------------------------------"
+
+
 ################################################################################
 # Developing \
 DEVELOP: ## ############################################################
@@ -22,7 +29,7 @@ TESTING:  ## ############################################################
 
 .PHONY: test
 test:   ## test
-	RUN_ENV=test python -m pytest --cov-report=xml --cov-report term --cov=$(pkg_src) $(tests_src) $(pkg_src)/lib
+	RUN_ENV=test python -m pytest --cov-report=xml --cov-report term --cov=src/rplc tests
 
 ################################################################################
 # Code Quality \
@@ -56,14 +63,10 @@ build: clean style  ## format and build
 	@echo "building"
 	python -m build
 
-.PHONY: dist
-dist:  ## - create a wheel distribution package
-	@python setup.py bdist_wheel
-
-
-.PHONY: dist-test
-dist-test: dist  ## - test a wheel distribution package
-	@cd dist && ../tests/test-dist.bash ./rplc-*-py3-none-any.whl
+.PHONY: publish
+publish:  ## publish
+	@echo "upload to Pypi"
+	twine upload --verbose dist/*
 
 .PHONY: upload
 upload:   ## twine upload

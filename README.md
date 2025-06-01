@@ -1,9 +1,10 @@
-# RPLC - Local Overlays
+# rplc
 
-A CLI tool for allowing custom file versions which will not be checked into the main project repository,
-but can rather kept separately in local or private data store and swapped-in/out on demand.
+## Local File Swapping for Development
 
-This allows to have personal configurations and versions without poluting project repositories.
+A CLI tool for managing custom file versions in private storage.
+Swap files in and out on demand to enable personal configurations without polluting the main repository.
+
 
 ## Features
 
