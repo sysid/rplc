@@ -71,3 +71,27 @@ def test_cli_swap_out(
     print("\nSwap-out output:", result.output)  # Debug output
     assert result.exit_code == 0
     assert "Swapped out:" in result.output
+
+
+def test_cli_info_basic_display(
+    test_project: tuple[Path, Path], test_config_file: Path
+) -> None:
+    """Test info command displays basic configuration"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "info",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "RPLC Configuration" in result.output
