@@ -11,6 +11,7 @@ Swap files in and out on demand to enable personal configurations without pollut
 - **File/Directory Mirroring**: Swap between original and mirror versions of files and directories
 - **Configuration-Driven**: Define mirror mappings in Markdown configuration files
 - **Environment Variable Support**: Use environment variables in path configurations for flexible setups
+- **Environment Configuration**: Configure CLI options via environment variables
 - **Environment Integration**: Automatic `.envrc` management with swap state tracking
 - **Atomic Operations**: Safe file operations with backup and restore capabilities
 - **Selective Operations**: Target specific files or operate on entire configurations
@@ -73,9 +74,47 @@ rplc swap-in --config rplc-config.md
 rplc swap-out --config rplc-config.md
 ```
 
+## Environment Variables
+
+RPLC can be configured using environment variables, which serve as defaults when command-line options are not provided:
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `RPLC_CONFIG` | Path to configuration file | `sample.md` |
+| `RPLC_PROJ_DIR` | Project directory path | Current directory |
+| `RPLC_MIRROR_DIR` | Mirror directory path | `../mirror_proj` |
+| `RPLC_NO_ENV` | Disable .envrc management | `false` |
+
+### Example Environment Setup
+
+```bash
+# In your .bashrc, .zshrc, or project .envrc
+export RPLC_CONFIG="$HOME/.config/rplc/config.md"
+export RPLC_PROJ_DIR="/workspace/myproject"
+export RPLC_MIRROR_DIR="/workspace/mirror_myproject"
+export RPLC_NO_ENV="false"
+
+# Now you can use rplc without specifying options
+rplc swap-in
+rplc info
+```
+
 ## Usage
 
 ### Commands
+
+#### `info`
+Display configuration information and current swap status.
+
+```bash
+rplc info [OPTIONS]
+```
+
+Shows:
+- Configuration paths and their sources (CLI option vs environment variable)
+- Configured files/directories with their current status
+- Overall swap state (SWAPPED IN / NORMAL STATE)
+- Environment variable status
 
 #### `swap-in`
 Replace original files with mirror versions.
@@ -85,20 +124,20 @@ rplc swap-in [OPTIONS] [PATH]
 ```
 
 **Options:**
-- `--proj-dir, -p`: Project directory (default: current directory)
-- `--mirror-dir, -m`: Mirror directory (default: `../mirror_proj`)
-- `--config, -c`: Configuration file (default: `sample.md`)
-- `--no-env`: Disable `.envrc` management
+- `--proj-dir, -p`: Project directory (env: `RPLC_PROJ_DIR`)
+- `--mirror-dir, -m`: Mirror directory (env: `RPLC_MIRROR_DIR`)
+- `--config, -c`: Configuration file (env: `RPLC_CONFIG`)
+- `--no-env`: Disable `.envrc` management (env: `RPLC_NO_ENV`)
 
 **Examples:**
 ```bash
-# Swap all configured files
+# Swap all configured files (using environment variables)
 rplc swap-in
 
 # Swap specific file
 rplc swap-in main/resources/application.yml
 
-# Use custom directories
+# Override environment with explicit options
 rplc swap-in --proj-dir /path/to/project --mirror-dir /path/to/mirror
 ```
 
@@ -145,9 +184,7 @@ RPLC automatically manages the `RPLC_SWAPPED` environment variable in `.envrc` f
 - **swap-in**: Sets `export RPLC_SWAPPED=1`
 - **swap-out**: Removes the variable
 
-Disable with `--no-env` flag.
-
-
+Disable with `--no-env` flag or `RPLC_NO_ENV=true` environment variable.
 
 ## How It Works
 
@@ -279,5 +316,3 @@ make bump-patch  # or bump-minor, bump-major
 3. Make changes with tests
 4. Run `make lint` and `make test`
 5. Submit a pull request
-
-
