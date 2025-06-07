@@ -1,5 +1,6 @@
 # src/rplc/bin/cli.py
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Annotated
 
@@ -18,23 +19,55 @@ __version__ = "0.2.1"
 app = typer.Typer(help="RPLC - Local Override Exchange for git projects")
 
 
+def get_default_proj_dir() -> Path:
+    """Get default project directory from environment or current directory"""
+    return Path(os.getenv("RPLC_PROJ_DIR", Path.cwd()))
+
+
+def get_default_mirror_dir() -> Path:
+    """Get default mirror directory from environment or default relative path"""
+    return Path(os.getenv("RPLC_MIRROR_DIR", "../mirror_proj"))
+
+
+def get_default_config() -> Path:
+    """Get default config file from environment or default name"""
+    return Path(os.getenv("RPLC_CONFIG", "sample.md"))
+
+
+def get_default_no_env() -> bool:
+    """Get default no-env setting from environment"""
+    return os.getenv("RPLC_NO_ENV", "").lower() in ("1", "true", "yes")
+
+
 @app.command()
 def info(
     proj_dir: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
-            "--proj-dir", "-p", help="Project directory containing original files"
+            "--proj-dir",
+            "-p",
+            help="Project directory containing original files (env: RPLC_PROJ_DIR)",
         ),
-    ] = Path.cwd(),
+    ] = None,
     mirror_dir: Annotated[
-        Path,
-        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files"),
-    ] = Path("../mirror_proj"),
+        Optional[Path],
+        typer.Option(
+            "--mirror-dir",
+            "-m",
+            help="Directory containing mirrored files (env: RPLC_MIRROR_DIR)",
+        ),
+    ] = None,
     config: Annotated[
-        Path, typer.Option("--config", "-c", help="Path to config file")
-    ] = Path("sample.md"),
+        Optional[Path],
+        typer.Option("--config", "-c", help="Path to config file (env: RPLC_CONFIG)"),
+    ] = None,
 ) -> None:
     """Display configuration information and current swap status"""
+    # Use environment variables as defaults if options not provided
+    proj_dir = proj_dir or get_default_proj_dir()
+    mirror_dir = mirror_dir or get_default_mirror_dir()
+    config = config or get_default_config()
+
     config_file = config.resolve()
 
     # Display basic configuration
@@ -43,13 +76,19 @@ def info(
     info_table = Table(show_header=False, box=None)
     info_table.add_column("Setting", style="cyan", width=20)
     info_table.add_column("Value", style="white")
+    info_table.add_column("Source", style="dim", width=12)
 
-    info_table.add_row("Config File", str(config_file))
-    info_table.add_row("Project Directory", str(proj_dir.resolve()))
-    info_table.add_row("Mirror Directory", str(mirror_dir.resolve()))
-    info_table.add_row("Config Exists", "✓" if config_file.exists() else "✗")
-    info_table.add_row("Project Dir Exists", "✓" if proj_dir.exists() else "✗")
-    info_table.add_row("Mirror Dir Exists", "✓" if mirror_dir.exists() else "✗")
+    # Show configuration sources
+    config_source = "ENV" if os.getenv("RPLC_CONFIG") else "DEFAULT"
+    proj_source = "ENV" if os.getenv("RPLC_PROJ_DIR") else "DEFAULT"
+    mirror_source = "ENV" if os.getenv("RPLC_MIRROR_DIR") else "DEFAULT"
+
+    info_table.add_row("Config File", str(config_file), config_source)
+    info_table.add_row("Project Directory", str(proj_dir.resolve()), proj_source)
+    info_table.add_row("Mirror Directory", str(mirror_dir.resolve()), mirror_source)
+    info_table.add_row("Config Exists", "✓" if config_file.exists() else "✗", "")
+    info_table.add_row("Project Dir Exists", "✓" if proj_dir.exists() else "✗", "")
+    info_table.add_row("Mirror Dir Exists", "✓" if mirror_dir.exists() else "✗", "")
 
     console.print(info_table)
     console.print()
@@ -65,7 +104,7 @@ def info(
             config_file,
             proj_dir=proj_dir.resolve(),
             mirror_dir=mirror_dir.resolve(),
-            manage_env=False  # Don't modify env for info command
+            manage_env=False,  # Don't modify env for info command
         )
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
@@ -112,12 +151,7 @@ def info(
         except ValueError:
             mirror_rel = config.mirror_path
 
-        files_table.add_row(
-            item_type,
-            str(source_rel),
-            str(mirror_rel),
-            status
-        )
+        files_table.add_row(item_type, str(source_rel), str(mirror_rel), status)
 
     console.print(files_table)
     console.print()
@@ -126,14 +160,18 @@ def info(
     envrc_path = proj_dir / ".envrc"
     if envrc_path.exists():
         content = envrc_path.read_text()
-        env_status = "🟢 Active" if "export RPLC_SWAPPED=1" in content else "🔴 Inactive"
+        env_status = (
+            "🟢 Active" if "export RPLC_SWAPPED=1" in content else "🔴 Inactive"
+        )
         console.print(f"Environment Tracking: {env_status}")
     else:
         console.print("Environment Tracking: [dim]No .envrc file[/dim]")
 
     # Current Status Summary
     console.print()
-    swapped_count = sum(1 for config in manager.configs if manager._get_sentinel_path(config).exists())
+    swapped_count = sum(
+        1 for config in manager.configs if manager._get_sentinel_path(config).exists()
+    )
     total_count = len(manager.configs)
 
     # Overall status panel
@@ -166,32 +204,48 @@ def info(
         if "export RPLC_SWAPPED=1" in content:
             console.print("[green]✓ Environment variable RPLC_SWAPPED is set[/green]")
         else:
-            console.print("[yellow]⚠ Environment variable RPLC_SWAPPED is not set[/yellow]")
+            console.print(
+                "[yellow]⚠ Environment variable RPLC_SWAPPED is not set[/yellow]"
+            )
     else:
         console.print("[dim]ℹ No .envrc file found[/dim]")
 
 
 @app.command()
-def swap_in(
+def swapin(
     path: Optional[str] = None,
     proj_dir: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
-            "--proj-dir", "-p", help="Project directory containing original files"
+            "--proj-dir",
+            "-p",
+            help="Project directory containing original files (env: RPLC_PROJ_DIR)",
         ),
-    ] = Path.cwd(),
+    ] = None,
     mirror_dir: Annotated[
-        Path,
-        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files"),
-    ] = Path("../mirror_proj"),
+        Optional[Path],
+        typer.Option(
+            "--mirror-dir",
+            "-m",
+            help="Directory containing mirrored files (env: RPLC_MIRROR_DIR)",
+        ),
+    ] = None,
     config: Annotated[
-        Path, typer.Option("--config", "-c", help="Path to config file")
-    ] = Path("sample.md"),
+        Optional[Path],
+        typer.Option("--config", "-c", help="Path to config file (env: RPLC_CONFIG)"),
+    ] = None,
     no_env: Annotated[
-        bool, typer.Option("--no-env", help="Disable .envrc management")
-    ] = False,
+        Optional[bool],
+        typer.Option("--no-env", help="Disable .envrc management (env: RPLC_NO_ENV)"),
+    ] = None,
 ) -> None:
     """Swap in mirror versions of files/directories"""
+    # Use environment variables as defaults if options not provided
+    proj_dir = proj_dir or get_default_proj_dir()
+    mirror_dir = mirror_dir or get_default_mirror_dir()
+    config = config or get_default_config()
+    no_env = no_env if no_env is not None else get_default_no_env()
+
     config_file = config.resolve()
     if not config_file.exists():
         typer.echo(f"Error: Config file {config_file} not found")
@@ -206,26 +260,40 @@ def swap_in(
 
 
 @app.command()
-def swap_out(
+def swapout(
     path: Optional[str] = None,
     proj_dir: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
-            "--proj-dir", "-p", help="Project directory containing original files"
+            "--proj-dir",
+            "-p",
+            help="Project directory containing original files (env: RPLC_PROJ_DIR)",
         ),
-    ] = Path.cwd(),
+    ] = None,
     mirror_dir: Annotated[
-        Path,
-        typer.Option("--mirror-dir", "-m", help="Directory containing mirrored files"),
-    ] = Path("../mirror_proj"),
+        Optional[Path],
+        typer.Option(
+            "--mirror-dir",
+            "-m",
+            help="Directory containing mirrored files (env: RPLC_MIRROR_DIR)",
+        ),
+    ] = None,
     config: Annotated[
-        Path, typer.Option("--config", "-c", help="Path to config file")
-    ] = Path("sample.md"),
+        Optional[Path],
+        typer.Option("--config", "-c", help="Path to config file (env: RPLC_CONFIG)"),
+    ] = None,
     no_env: Annotated[
-        bool, typer.Option("--no-env", help="Disable .envrc management")
-    ] = False,
+        Optional[bool],
+        typer.Option("--no-env", help="Disable .envrc management (env: RPLC_NO_ENV)"),
+    ] = None,
 ) -> None:
     """Swap out mirror versions and restore originals"""
+    # Use environment variables as defaults if options not provided
+    proj_dir = proj_dir or get_default_proj_dir()
+    mirror_dir = mirror_dir or get_default_mirror_dir()
+    config = config or get_default_config()
+    no_env = no_env if no_env is not None else get_default_no_env()
+
     config_file = config.resolve()
     if not config_file.exists():
         typer.echo(f"Error: Config file {config_file} not found")
