@@ -32,8 +32,8 @@ test:   ## test
 	RUN_ENV=test python -m pytest --cov-report=xml --cov-report term --cov=src/rplc tests
 
 .PHONY: init
-init:  ## init
-	@rm -vrf $(HOME)/dev/s/private/py-twlib/rplc/sysid/xxx
+init:  ## init: remove test setup 'xxx'
+	rm -vrf $(HOME)/dev/s/private/py-twlib/rplc/sysid/xxx
 
 ################################################################################
 # Code Quality \
