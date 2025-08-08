@@ -1,9 +1,14 @@
 # rplc
 
-## Local File Swapping for Development
+**rplc** (Replace Locally) is a CLI tool for managing file and directory mirroring in development workflows. It enables developers to swap between original and custom versions of files without polluting the main repository.
 
-A CLI tool for managing custom file versions in private storage.
-Swap files in and out on demand to enable personal configurations without polluting the main repository.
+**Perfect for:**
+- Managing personal configuration overrides during development
+- Testing with different configuration files without git changes
+- Maintaining custom versions of files across development sessions
+- Creating isolated development environments
+
+All operations are atomic and idempotent.
 
 
 ## Features
@@ -18,22 +23,26 @@ Swap files in and out on demand to enable personal configurations without pollut
 
 ## Installation
 
+### From PyPI
+
 ```bash
 pip install rplc
 ```
 
-Or for development:
+### From Source
 
 ```bash
-git clone <repository>
+git clone https://github.com/sysid/rplc.git
 cd rplc
-uv sync --dev
-uv run rplc --help
+uv sync --dev  # Install with development dependencies
+uv tool install -e .  # Install CLI globally
 ```
 
 ## Quick Start
 
-1. Create a configuration file (e.g., `rplc-config.md`):
+### 1. Create a Configuration File
+
+Create a configuration file (e.g., `rplc-config.md`):
 
 ```markdown
 # Development
@@ -44,9 +53,10 @@ main/src/class.java
 scratchdir/
 $HOME/.config/app/local-settings.yml
 ${PROJECT_ROOT}/temp/
+# Lines starting with # are ignored as comments
 ```
 
-2. Set up mirror directory structure:
+### 2. Set up Mirror Directory Structure
 
 ```
 project/
@@ -62,13 +72,13 @@ mirror_proj/
     └── file.txt
 ```
 
-3. Swap in mirror versions:
+### 3. Swap in Mirror Versions
 
 ```bash
 rplc swap-in --config rplc-config.md
 ```
 
-4. Swap back to originals:
+### 4. Swap Back to Originals
 
 ```bash
 rplc swap-out --config rplc-config.md
@@ -134,11 +144,17 @@ rplc swap-in [OPTIONS] [PATH]
 # Swap all configured files (using environment variables)
 rplc swap-in
 
-# Swap specific file
+# Swap specific file only
 rplc swap-in main/resources/application.yml
 
-# Override environment with explicit options
+# Swap with custom directories (overrides environment)
 rplc swap-in --proj-dir /path/to/project --mirror-dir /path/to/mirror
+
+# Swap without managing .envrc
+rplc swap-in --no-env
+
+# Real-world example: Override database config for development
+rplc swap-in config/database.yml
 ```
 
 #### `swap-out`
@@ -152,7 +168,7 @@ Uses same options as `swap-in`.
 
 ### Configuration Format
 
-Configuration files use Markdown format with a specific structure:
+Configuration files use Markdown format with a specific structure. Only content under the `# Development` → `## rplc-config` section is processed:
 
 ```markdown
 # Development
@@ -163,6 +179,7 @@ path/to/directory/
 another/file.yml
 $HOME/.config/app/settings.yml
 ${PROJECT_ROOT}/temp/cache/
+# This is a comment and will be ignored
 ```
 
 **Rules:**
@@ -214,17 +231,18 @@ mirror_proj/
 ├── file.txt.rplc.original             # Backup of original content
 └── file.txt.rplc_active               # Sentinel marking active swap
 ```
-### Swap State  Tracking
-- implemented through **sentinel files**
+### Swap State Tracking
 
-## 1. Sentinel Files (`.rplc_active`)
+rplc tracks swap state through two mechanisms:
+
+#### 1. Sentinel Files (`.rplc_active`)
 - **Purpose**: Track which files are currently swapped in
 - **Location**: Mirror directory with `.rplc_active` suffix
 - **Content**: Copy of the original mirror content
 - **Check**: `sentinel.exists()` determines swap state
 - **Cleanup**: Removed during `swap_out`
 
-## 2. Environment Variable (`RPLC_SWAPPED`)
+#### 2. Environment Variable (`RPLC_SWAPPED`)
 - **Purpose**: Global state indicator in `.envrc`
 - **Value**: `export RPLC_SWAPPED=1` when any files are swapped
 - **Management**: Automatically added/removed during operations
@@ -234,6 +252,20 @@ mirror_proj/
 ```
 Normal State:     No sentinel files, no RPLC_SWAPPED
 Swapped State:    Sentinel files exist, RPLC_SWAPPED=1
+```
+
+## Troubleshooting
+
+```bash
+# Show detailed help for any command
+rplc --help
+rplc swap-in --help
+
+# Show current configuration and status
+rplc info
+
+# Enable verbose output (if available)
+rplc -v swap-in
 ```
 
 ## Development
@@ -279,15 +311,8 @@ tests/
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests with coverage
 make test
-
-# Run specific test types
-make test-unit
-make test-e2e
-
-# Coverage report
-make coverage
 ```
 
 ### Building
@@ -302,12 +327,16 @@ make bump-patch  # or bump-minor, bump-major
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12 or higher
 - typer>=0.15.1
+- `uv` for faster dependency management
+- `direnv` for automatic environment variable loading
 
 ## License
 
-[License information]
+BSD 3-Clause License. See [LICENSE](LICENSE) for details.
+
+Copyright © 2024, [sysid](https://sysid.github.io/). All rights reserved.
 
 ## Contributing
 
