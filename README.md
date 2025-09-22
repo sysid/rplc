@@ -75,13 +75,21 @@ mirror_proj/
 ### 3. Swap in Mirror Versions
 
 ```bash
-rplc swap-in --config rplc-config.md
+# Swap all configured files
+rplc swapin --config rplc-config.md
+
+# Or swap specific files only
+rplc swapin main/resources/application.yml main/src/class.java --config rplc-config.md
 ```
 
 ### 4. Swap Back to Originals
 
 ```bash
-rplc swap-out --config rplc-config.md
+# Swap out all files
+rplc swapout --config rplc-config.md
+
+# Or swap out specific files only
+rplc swapout main/resources/application.yml --config rplc-config.md
 ```
 
 ## Environment Variables
@@ -105,7 +113,7 @@ export RPLC_MIRROR_DIR="/workspace/mirror_myproject"
 export RPLC_NO_ENV="false"
 
 # Now you can use rplc without specifying options
-rplc swap-in
+rplc swapin
 rplc info
 ```
 
@@ -126,14 +134,19 @@ Shows:
 - Overall swap state (SWAPPED IN / NORMAL STATE)
 - Environment variable status
 
-#### `swap-in`
+#### `swapin`
 Replace original files with mirror versions.
 
 ```bash
-rplc swap-in [OPTIONS] [PATH]
+rplc swapin [FILES...] [OPTIONS]
 ```
 
+**Arguments:**
+- `FILES...`: Specific files or directories to swap in (space-separated)
+
 **Options:**
+- `--pattern, -g`: Glob pattern for file selection (e.g., "*.yml", "main/**/*")
+- `--exclude, -x`: Exclude patterns (can be used multiple times)
 - `--proj-dir, -p`: Project directory (env: `RPLC_PROJ_DIR`)
 - `--mirror-dir, -m`: Mirror directory (env: `RPLC_MIRROR_DIR`)
 - `--config, -c`: Configuration file (env: `RPLC_CONFIG`)
@@ -142,29 +155,53 @@ rplc swap-in [OPTIONS] [PATH]
 **Examples:**
 ```bash
 # Swap all configured files (using environment variables)
-rplc swap-in
+rplc swapin
 
-# Swap specific file only
-rplc swap-in main/resources/application.yml
+# Swap specific files only
+rplc swapin main/resources/application.yml main/src/class.java
+
+# Swap using glob patterns
+rplc swapin --pattern "*.yml"
+rplc swapin --pattern "main/**/*"
+
+# Swap all except certain files
+rplc swapin --exclude "*.log" --exclude "temp/*"
+
+# Combine specific files with exclusions
+rplc swapin config/ src/ --exclude "*.backup"
 
 # Swap with custom directories (overrides environment)
-rplc swap-in --proj-dir /path/to/project --mirror-dir /path/to/mirror
+rplc swapin --proj-dir /path/to/project --mirror-dir /path/to/mirror
 
-# Swap without managing .envrc
-rplc swap-in --no-env
-
-# Real-world example: Override database config for development
-rplc swap-in config/database.yml
+# Real-world examples
+rplc swapin config/database.yml         # Override database config
+rplc swapin --pattern "config/*.yml"    # All YAML configs
+rplc swapin src/ --exclude "*/test/*"   # Source code except tests
 ```
 
-#### `swap-out`
+#### `swapout`
 Restore original files and move modified versions to mirror.
 
 ```bash
-rplc swap-out [OPTIONS] [PATH]
+rplc swapout [FILES...] [OPTIONS]
 ```
 
-Uses same options as `swap-in`.
+Uses same arguments and options as `swapin`.
+
+**Examples:**
+```bash
+# Swap out all configured files
+rplc swapout
+
+# Swap out specific files only
+rplc swapout main/resources/application.yml
+
+# Swap out using patterns
+rplc swapout --pattern "*.yml"
+
+# Swap out all except certain files
+rplc swapout --exclude "*.log"
+```
 
 ### Configuration Format
 
@@ -198,8 +235,8 @@ ${PROJECT_ROOT}/temp/cache/
 
 RPLC automatically manages the `RPLC_SWAPPED` environment variable in `.envrc` files:
 
-- **swap-in**: Sets `export RPLC_SWAPPED=1`
-- **swap-out**: Removes the variable
+- **swapin**: Sets `export RPLC_SWAPPED=1`
+- **swapout**: Removes the variable
 
 Disable with `--no-env` flag or `RPLC_NO_ENV=true` environment variable.
 
@@ -259,13 +296,13 @@ Swapped State:    Sentinel files exist, RPLC_SWAPPED=1
 ```bash
 # Show detailed help for any command
 rplc --help
-rplc swap-in --help
+rplc swapin --help
 
 # Show current configuration and status
 rplc info
 
 # Enable verbose output (if available)
-rplc -v swap-in
+rplc -v swapin
 ```
 
 ## Development

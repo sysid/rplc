@@ -2,7 +2,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Annotated
+from typing import Optional, Annotated, List
 
 import typer
 from rich.console import Console
@@ -213,7 +213,9 @@ def info(
 
 @app.command()
 def swapin(
-    path: Optional[str] = None,
+    files: Annotated[Optional[List[str]], typer.Argument(help="Files/directories to swap in")] = None,
+    pattern: Annotated[Optional[str], typer.Option("--pattern", "-g", help="Glob pattern for file selection")] = None,
+    exclude: Annotated[Optional[List[str]], typer.Option("--exclude", "-x", help="Exclude patterns")] = None,
     proj_dir: Annotated[
         Optional[Path],
         typer.Option(
@@ -256,12 +258,14 @@ def swapin(
         mirror_dir=mirror_dir.resolve(),
         manage_env=not no_env,
     )
-    manager.swap_in(path)
+    manager.swap_in(files=files, pattern=pattern, exclude=exclude)
 
 
 @app.command()
 def swapout(
-    path: Optional[str] = None,
+    files: Annotated[Optional[List[str]], typer.Argument(help="Files/directories to swap out")] = None,
+    pattern: Annotated[Optional[str], typer.Option("--pattern", "-g", help="Glob pattern for file selection")] = None,
+    exclude: Annotated[Optional[List[str]], typer.Option("--exclude", "-x", help="Exclude patterns")] = None,
     proj_dir: Annotated[
         Optional[Path],
         typer.Option(
@@ -304,7 +308,7 @@ def swapout(
         mirror_dir=mirror_dir.resolve(),
         manage_env=not no_env,
     )
-    manager.swap_out(path)
+    manager.swap_out(files=files, pattern=pattern, exclude=exclude)
 
 
 @app.callback(invoke_without_command=True)
