@@ -168,3 +168,209 @@ def test_mirror_manager_no_env_flag(test_project: tuple[Path, Path], test_config
 
     # Test swap out
     manager.swap_out()
+    assert envrc_path.read_text() == original_content
+
+
+def test_filter_configs_no_parameters(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test _filter_configs with no parameters returns all configs"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # No filters should return all configs
+    filtered = manager._filter_configs()
+    assert len(filtered) == len(manager.configs)
+    assert filtered == manager.configs
+
+
+def test_filter_configs_specific_files(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test _filter_configs with specific file list"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Filter for specific file
+    filtered = manager._filter_configs(files=["main/resources/application.yml"])
+    assert len(filtered) == 1
+    assert str(filtered[0].source_path).endswith("main/resources/application.yml")
+
+    # Filter for multiple files
+    filtered = manager._filter_configs(files=["main/resources/application.yml", "scratchdir/"])
+    assert len(filtered) == 2
+
+    # Filter for non-existent file should show warning but not crash
+    filtered = manager._filter_configs(files=["nonexistent.txt"])
+    assert len(filtered) == 0
+
+
+def test_filter_configs_pattern_matching(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test _filter_configs with glob patterns"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Pattern matching for YAML files
+    filtered = manager._filter_configs(pattern="*.yml")
+    assert len(filtered) == 1
+    assert str(filtered[0].source_path).endswith("application.yml")
+
+    # Pattern matching for all files in a directory
+    filtered = manager._filter_configs(pattern="main/**/*")
+    assert len(filtered) == 2  # should match both .yml and .java files
+
+    # Pattern that matches nothing
+    filtered = manager._filter_configs(pattern="*.nonexistent")
+    assert len(filtered) == 0
+
+
+def test_filter_configs_exclude_patterns(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test _filter_configs with exclusion patterns"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Exclude specific patterns
+    filtered = manager._filter_configs(exclude=["*.yml"])
+    # Should return configs that don't match the exclusion pattern
+    assert len(filtered) == 2  # java file and scratchdir should remain
+
+    # Exclude multiple patterns
+    filtered = manager._filter_configs(exclude=["*.yml", "*.java"])
+    assert len(filtered) == 1  # Should only have scratchdir/
+
+    # Exclude directory patterns
+    filtered = manager._filter_configs(exclude=["main/**/*"])
+    assert len(filtered) == 1
+    assert str(filtered[0].source_path).endswith("scratchdir")
+
+
+def test_filter_configs_combined_filters(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test _filter_configs with combined files, patterns, and exclusions"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Files + exclusions
+    filtered = manager._filter_configs(
+        files=["main/resources/application.yml", "main/src/class.java"],
+        exclude=["*.java"]
+    )
+    assert len(filtered) == 1
+    assert str(filtered[0].source_path).endswith("application.yml")
+
+    # Pattern + exclusions
+    filtered = manager._filter_configs(
+        pattern="main/**/*",
+        exclude=["*.yml"]
+    )
+    assert len(filtered) == 1
+    assert str(filtered[0].source_path).endswith("class.java")
+
+
+def test_swap_in_with_specific_files(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test swap_in with specific file filtering"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Swap in only one specific file
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    # Check that only the specified file was swapped
+    yml_sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    java_sentinel = mirror_dir / f"main/src/class.java{manager.SENTINEL_SUFFIX}"
+    dir_sentinel = mirror_dir / f"scratchdir{manager.SENTINEL_SUFFIX}"
+
+    assert yml_sentinel.exists()
+    assert not java_sentinel.exists()
+    assert not dir_sentinel.exists()
+
+    # Verify content was swapped correctly
+    assert (proj_dir / "main/resources/application.yml").read_text() == "mirror: true"
+    assert (proj_dir / "scratchdir/note.txt").read_text() == "original note"  # directory wasn't touched
+
+
+def test_swap_out_with_pattern(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test swap_out with pattern filtering"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # First swap in all files
+    manager.swap_in()
+
+    # Modify files
+    (proj_dir / "main/resources/application.yml").write_text("modified yml")
+    (proj_dir / "scratchdir/note.txt").write_text("modified txt")
+
+    # Swap out only YAML files
+    manager.swap_out(pattern="*.yml")
+
+    # Check that only YAML file was swapped out
+    yml_sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    java_sentinel = mirror_dir / f"main/src/class.java{manager.SENTINEL_SUFFIX}"
+    dir_sentinel = mirror_dir / f"scratchdir{manager.SENTINEL_SUFFIX}"
+
+    assert not yml_sentinel.exists()  # Should be removed
+    assert java_sentinel.exists()      # Should still exist
+    assert dir_sentinel.exists()       # Should still exist
+
+    # Verify correct content restoration
+    assert (proj_dir / "main/resources/application.yml").read_text() == "original: true"
+    assert (proj_dir / "main/src/class.java").read_text() == "mirror java"  # Still swapped
+    assert (proj_dir / "scratchdir/note.txt").read_text() == "modified txt"  # Still modified
+
+
+def test_swap_operations_are_idempotent(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that multiple swap operations are idempotent"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Store initial state
+    initial_yml = (proj_dir / "main/resources/application.yml").read_text()
+    initial_txt = (proj_dir / "scratchdir/note.txt").read_text()
+
+    # Swap in multiple times
+    manager.swap_in(files=["main/resources/application.yml"])
+    first_swap_yml = (proj_dir / "main/resources/application.yml").read_text()
+
+    manager.swap_in(files=["main/resources/application.yml"])
+    second_swap_yml = (proj_dir / "main/resources/application.yml").read_text()
+
+    # Should be identical
+    assert first_swap_yml == second_swap_yml
+
+    # Swap out multiple times
+    manager.swap_out(files=["main/resources/application.yml"])
+    first_restore_yml = (proj_dir / "main/resources/application.yml").read_text()
+
+    manager.swap_out(files=["main/resources/application.yml"])
+    second_restore_yml = (proj_dir / "main/resources/application.yml").read_text()
+
+    # Should be identical and match initial state
+    assert first_restore_yml == second_restore_yml == initial_yml

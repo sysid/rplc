@@ -2,6 +2,7 @@
 import logging
 import shutil
 import subprocess
+import fnmatch
 from pathlib import Path
 from typing import List, Optional
 
@@ -61,9 +62,9 @@ class MirrorManager:
         # Write back to file
         envrc_path.write_text("\n".join(lines) + "\n")
 
-    def swap_in(self, path: Optional[str] = None) -> None:
+    def swap_in(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
         """Swap in mirror versions of files/directories"""
-        configs = self._filter_configs(path)
+        configs = self._filter_configs(files=files, pattern=pattern, exclude=exclude)
         logger.debug(f"Swapping in: {configs}")
 
         # Only update envrc if we're actually swapping something
@@ -94,12 +95,12 @@ class MirrorManager:
 
             print(f"[green]Swapped in: {config.source_path}[/green]")
 
-    def swap_out(self, path: Optional[str] = None) -> None:
+    def swap_out(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
         """
         Swap out mirror versions and restore originals.
         If this is the first swap-out (mirror directory empty), moves project files to mirror.
         """
-        configs = self._filter_configs(path)
+        configs = self._filter_configs(files=files, pattern=pattern, exclude=exclude)
         logger.debug(f"Swapping out: {configs}")
 
         # Only update envrc if we're actually swapping something
@@ -139,12 +140,63 @@ class MirrorManager:
 
             print(f"[green]Swapped out: {config.source_path}[/green]")
 
-    def _filter_configs(self, path: Optional[str]) -> List[MirrorConfig]:
-        """Filter configs based on specified path"""
-        if not path:
+    def _filter_configs(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> List[MirrorConfig]:
+        """Filter configs based on specified files, patterns, and exclusions"""
+        # If no filters specified, return all configs
+        if not any([files, pattern, exclude]):
             return self.configs
-        target_path = (self.proj_dir / Path(path)).resolve()
-        return [c for c in self.configs if c.source_path == target_path]
+
+        filtered_configs = []
+
+        # Start with all configs if no positive filters (files/pattern) are specified
+        if not files and not pattern:
+            filtered_configs = self.configs.copy()
+        else:
+            # Apply file-specific filtering
+            if files:
+                for file_path in files:
+                    # Resolve file path relative to project directory
+                    if Path(file_path).is_absolute():
+                        target_path = Path(file_path).resolve()
+                    else:
+                        target_path = (self.proj_dir / file_path).resolve()
+
+                    # Find matching configs
+                    matching_configs = [c for c in self.configs if c.source_path == target_path]
+                    if not matching_configs:
+                        print(f"[yellow]Warning: No configuration found for: {file_path}[/yellow]")
+                    filtered_configs.extend(matching_configs)
+
+            # Apply pattern-based filtering
+            if pattern:
+                for config in self.configs:
+                    # Get relative path for pattern matching
+                    try:
+                        rel_path = config.source_path.relative_to(self.proj_dir)
+                        if fnmatch.fnmatch(str(rel_path), pattern):
+                            if config not in filtered_configs:
+                                filtered_configs.append(config)
+                    except ValueError:
+                        # Skip if path is not relative to project directory
+                        pass
+
+        # Apply exclusion filtering
+        if exclude:
+            excluded_configs = []
+            for exclude_pattern in exclude:
+                for config in filtered_configs:
+                    try:
+                        rel_path = config.source_path.relative_to(self.proj_dir)
+                        if fnmatch.fnmatch(str(rel_path), exclude_pattern):
+                            excluded_configs.append(config)
+                    except ValueError:
+                        # Skip if path is not relative to project directory
+                        pass
+
+            # Remove excluded configs
+            filtered_configs = [c for c in filtered_configs if c not in excluded_configs]
+
+        return filtered_configs
 
     def _get_backup_path(self, config: MirrorConfig) -> Path:
         """Get backup path for original in mirror directory"""
