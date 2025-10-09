@@ -115,6 +115,100 @@ class ConfigParser:
         return resolved
 
     @staticmethod
+    def remove_config_entry(config_file: Path, path_to_remove: Path, proj_dir: Path) -> bool:
+        """
+        Remove a specific path entry from the config file.
+
+        Args:
+            config_file: Path to the configuration file
+            path_to_remove: Absolute path to remove from configuration
+            proj_dir: Project directory for path resolution
+
+        Returns:
+            True if entry was found and removed, False otherwise
+        """
+        if not config_file.exists():
+            return False
+
+        # Convert absolute path to relative path as it appears in config
+        try:
+            rel_path = path_to_remove.relative_to(proj_dir)
+        except ValueError:
+            # Path might use environment variables - try to match by string
+            rel_path = path_to_remove
+
+        content = config_file.read_text()
+        lines = content.splitlines(keepends=True)
+
+        state = ParseState.SEARCHING_DEVELOPMENT
+        modified = False
+        new_lines = []
+
+        for line in lines:
+            stripped = line.strip()
+            should_keep = True
+
+            # Track state to only process lines within rplc-config sections
+            if state == ParseState.SEARCHING_DEVELOPMENT:
+                if re.match(r'^#\s+[Dd]evelopment', stripped) and not re.match(r'^#{2,}', stripped):
+                    state = ParseState.IN_DEVELOPMENT
+
+            elif state == ParseState.IN_DEVELOPMENT:
+                if stripped == "## rplc-config":
+                    state = ParseState.IN_RPLC_CONFIG
+                elif re.match(r'^#{1,}\s+[Dd]evelopment', stripped):
+                    state = ParseState.DONE
+                elif re.match(r'^#\s+\w', stripped):
+                    state = ParseState.DONE
+
+            elif state == ParseState.IN_RPLC_CONFIG:
+                # Check if we hit a new heading
+                if re.match(r'^#{1,}\s+\w', stripped):
+                    if stripped == "## rplc-config":
+                        pass  # Stay in this state
+                    elif re.match(r'^#{1,}\s+[Dd]evelopment', stripped):
+                        state = ParseState.DONE
+                    elif re.match(r'^#\s+\w', stripped):
+                        state = ParseState.DONE
+                    else:
+                        state = ParseState.IN_DEVELOPMENT
+
+                # Check if this line matches the path to remove
+                elif stripped and not stripped.startswith('#'):
+                    # Check if it's a description line (skip)
+                    if not re.match(r'^[A-Z][a-z].*\s', stripped):
+                        # This is a path line - check if it matches
+                        is_directory = stripped.endswith('/')
+                        path_str = stripped.rstrip('/')
+
+                        # Resolve environment variables for comparison
+                        resolved_path_str = ConfigParser._resolve_env_vars(path_str)
+                        config_path = Path(resolved_path_str)
+
+                        # Compare paths - handle both relative and absolute
+                        matches = False
+                        if config_path.is_absolute():
+                            matches = (config_path == path_to_remove)
+                        else:
+                            # Relative path - compare with rel_path
+                            matches = (config_path == rel_path)
+
+                        if matches:
+                            should_keep = False
+                            modified = True
+                            from rich import print
+                            print(f"  [dim]Removing config entry: {stripped}[/dim]")
+
+            if should_keep:
+                new_lines.append(line)
+
+        # Write back the modified content
+        if modified:
+            config_file.write_text(''.join(new_lines))
+
+        return modified
+
+    @staticmethod
     def _remove_code_blocks(content: str) -> str:
         """Remove content between code fences (```...```) from markdown content"""
         pattern = r"```[^`]*```"

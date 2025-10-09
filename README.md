@@ -203,6 +203,53 @@ rplc swapout --pattern "*.yml"
 rplc swapout --exclude "*.log"
 ```
 
+#### `delete`
+Remove files/directories from rplc management.
+
+```bash
+rplc delete [FILES...] [OPTIONS]
+```
+
+**Important:** This command only works when files are swapped out (in their original state). Use `rplc swapout` first if files are currently swapped in.
+
+**What it removes:**
+- Mirror directory content
+- Backup files (`.rplc.original`)
+- Configuration file entries
+
+**Arguments:**
+- `FILES...`: Specific files or directories to remove from management (space-separated)
+
+**Options:**
+- `--pattern, -g`: Glob pattern for file selection
+- `--exclude, -x`: Exclude patterns (can be used multiple times)
+- `--proj-dir, -p`: Project directory (env: `RPLC_PROJ_DIR`)
+- `--mirror-dir, -m`: Mirror directory (env: `RPLC_MIRROR_DIR`)
+- `--config, -c`: Configuration file (env: `RPLC_CONFIG`)
+- `--no-env`: Disable `.envrc` management (env: `RPLC_NO_ENV`)
+
+**Examples:**
+```bash
+# Remove a specific file from management
+rplc delete main/resources/application.yml
+
+# Remove multiple files
+rplc delete main/resources/application.yml main/src/class.java
+
+# Remove using glob patterns
+rplc delete --pattern "*.yml"
+
+# Remove a directory
+rplc delete scratchdir/
+
+# Remove all except certain files
+rplc delete --pattern "main/**/*" --exclude "*.log"
+
+# If file is swapped in, you'll get an error:
+# Error: Cannot delete - currently swapped in
+# Run 'rplc swapout' first to restore original state
+```
+
 ### Configuration Format
 
 Configuration files use Markdown format with a specific structure. Only content under the `# Development` → `## rplc-config` section is processed:
