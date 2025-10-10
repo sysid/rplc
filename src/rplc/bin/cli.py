@@ -19,9 +19,80 @@ __version__ = "0.4.0"
 app = typer.Typer(help="RPLC - Local Override Exchange for git projects")
 
 
+def validate_working_directory(proj_dir: Path) -> None:
+    """
+    Ensure rplc is running from within the project directory.
+
+    Validates that current working directory is either the project directory
+    or a subdirectory within it.
+
+    Args:
+        proj_dir: The resolved project directory path
+
+    Raises:
+        typer.Exit: If current directory is not within project directory
+    """
+    cwd = Path.cwd().resolve()
+    proj_dir_resolved = proj_dir.resolve()
+
+    # Check if cwd is proj_dir or a subdirectory of it
+    try:
+        cwd.relative_to(proj_dir_resolved)
+    except ValueError:
+        # cwd is not within proj_dir
+        console.print("[red]✗ Error: rplc must be run from within the project directory[/red]")
+        console.print(f"  [dim]Current directory:[/dim] {cwd}")
+        console.print(f"  [dim]Project directory:[/dim] {proj_dir_resolved}")
+        console.print()
+        console.print("[yellow]Solutions:[/yellow]")
+        console.print(f"  1. cd {proj_dir_resolved}")
+        console.print(f"  2. Set RPLC_PROJ_DIR to your current directory")
+        console.print(f"  3. Use --proj-dir flag with correct path")
+        raise typer.Exit(1)
+
+
+def detect_project_directory() -> Path:
+    """
+    Detect project directory with validation.
+
+    Uses RPLC_PROJ_DIR env var if set, otherwise uses cwd.
+    Validates that the directory looks like a valid project root by
+    checking for common project markers.
+
+    Returns:
+        Path: The detected project directory
+
+    Raises:
+        typer.Exit: If no RPLC_PROJ_DIR is set and cwd has no project markers
+    """
+    if env_proj_dir := os.getenv("RPLC_PROJ_DIR"):
+        return Path(env_proj_dir)
+
+    # No env var set - use cwd but validate it looks like a project
+    cwd = Path.cwd()
+
+    # Check for common project markers
+    markers = [".git", ".envrc", "sample.md", "README.md", "pyproject.toml", "package.json", ".rplc"]
+    has_marker = any((cwd / marker).exists() for marker in markers)
+
+    if not has_marker:
+        console.print("[yellow]⚠ Warning: Current directory doesn't appear to be a project root[/yellow]")
+        console.print(f"  [dim]Directory:[/dim] {cwd}")
+        console.print(f"  [dim]No project markers found:[/dim] {', '.join(markers)}")
+        console.print()
+        console.print("[yellow]Suggestions:[/yellow]")
+        console.print("  1. Set RPLC_PROJ_DIR environment variable")
+        console.print("  2. Use --proj-dir flag")
+        console.print("  3. Ensure you're in the correct project directory")
+        console.print("  4. Create a marker file (e.g., .rplc) in your project root")
+        raise typer.Exit(1)
+
+    return cwd
+
+
 def get_default_proj_dir() -> Path:
-    """Get default project directory from environment or current directory"""
-    return Path(os.getenv("RPLC_PROJ_DIR", Path.cwd()))
+    """Get default project directory with validation"""
+    return detect_project_directory()
 
 
 def get_default_mirror_dir() -> Path:
@@ -67,6 +138,9 @@ def info(
     proj_dir = proj_dir or get_default_proj_dir()
     mirror_dir = mirror_dir or get_default_mirror_dir()
     config = config or get_default_config()
+
+    # Validate working directory
+    validate_working_directory(proj_dir)
 
     config_file = config.resolve()
 
@@ -255,6 +329,9 @@ def swapin(
     config = config or get_default_config()
     no_env = no_env if no_env is not None else get_default_no_env()
 
+    # Validate working directory
+    validate_working_directory(proj_dir)
+
     config_file = config.resolve()
     if not config_file.exists():
         typer.echo(f"Error: Config file {config_file} not found")
@@ -311,6 +388,9 @@ def swapout(
     mirror_dir = mirror_dir or get_default_mirror_dir()
     config = config or get_default_config()
     no_env = no_env if no_env is not None else get_default_no_env()
+
+    # Validate working directory
+    validate_working_directory(proj_dir)
 
     config_file = config.resolve()
     if not config_file.exists():
@@ -380,6 +460,9 @@ def delete(
     mirror_dir = mirror_dir or get_default_mirror_dir()
     config = config or get_default_config()
     no_env = no_env if no_env is not None else get_default_no_env()
+
+    # Validate working directory
+    validate_working_directory(proj_dir)
 
     config_file = config.resolve()
     if not config_file.exists():

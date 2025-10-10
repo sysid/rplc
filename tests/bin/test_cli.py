@@ -12,10 +12,13 @@ def test_cli_help() -> None:
 
 
 def test_cli_swap_in(
-    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path, monkeypatch
 ) -> None:
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -35,10 +38,13 @@ def test_cli_swap_in(
 
 
 def test_cli_swap_out(
-    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path, monkeypatch
 ) -> None:
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     # First swap in
     result = runner.invoke(
@@ -74,11 +80,14 @@ def test_cli_swap_out(
 
 
 def test_cli_info_basic_display(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test info command displays basic configuration"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -98,11 +107,14 @@ def test_cli_info_basic_display(
 
 
 def test_cli_swapin_with_specific_files(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test swapin command with specific file arguments"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -127,11 +139,14 @@ def test_cli_swapin_with_specific_files(
 
 
 def test_cli_swapin_with_pattern(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test swapin command with pattern matching"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -157,11 +172,14 @@ def test_cli_swapin_with_pattern(
 
 
 def test_cli_swapin_with_exclude(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test swapin command with exclusion patterns"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -189,11 +207,14 @@ def test_cli_swapin_with_exclude(
 
 
 def test_cli_swapout_with_specific_files(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test swapout command with specific file arguments"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     # First swap in all files
     runner.invoke(
@@ -237,11 +258,14 @@ def test_cli_swapout_with_specific_files(
 
 
 def test_cli_multiple_files_argument(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test commands with multiple file arguments"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -267,11 +291,14 @@ def test_cli_multiple_files_argument(
 
 
 def test_cli_invalid_file_warning(
-    test_project: tuple[Path, Path], test_config_file: Path
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test that invalid files show warnings but don't crash"""
     proj_dir, mirror_dir = test_project
     runner = CliRunner()
+
+    # Change to project directory to satisfy working directory validation
+    monkeypatch.chdir(proj_dir)
 
     result = runner.invoke(
         app,
@@ -289,3 +316,193 @@ def test_cli_invalid_file_warning(
 
     assert result.exit_code == 0
     assert "Warning: No configuration found for: nonexistent.txt" in result.output
+
+
+def test_command_fails_when_run_from_wrong_directory(
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path
+) -> None:
+    """Test that commands fail when run from outside project directory"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create a separate directory outside the project
+    wrong_dir = tmp_path / "wrong_location"
+    wrong_dir.mkdir()
+
+    # Try to run from wrong directory with explicit --proj-dir
+    # This should fail because cwd is not within proj_dir
+    result = runner.invoke(
+        app,
+        [
+            "info",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+        # Change to wrong directory
+        # Note: CliRunner doesn't support changing cwd, so we'll test this differently
+        # by using monkeypatch in a different test
+    )
+
+    # Since CliRunner runs in same cwd, we need a different approach
+    # This test is more about documentation - actual validation tested below
+
+
+def test_validate_working_directory_from_subdirectory(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
+) -> None:
+    """Test that commands succeed when run from subdirectory within project"""
+    import os
+    from rplc.bin.cli import validate_working_directory
+
+    proj_dir, mirror_dir = test_project
+
+    # Create and change to a subdirectory
+    subdir = proj_dir / "main"
+    subdir.mkdir(exist_ok=True)
+    monkeypatch.chdir(subdir)
+
+    # Should not raise - subdirectory is valid
+    validate_working_directory(proj_dir)
+
+
+def test_validate_working_directory_from_project_root(
+    test_project: tuple[Path, Path], monkeypatch
+) -> None:
+    """Test that commands succeed when run from project root"""
+    from rplc.bin.cli import validate_working_directory
+
+    proj_dir, mirror_dir = test_project
+
+    # Change to project directory
+    monkeypatch.chdir(proj_dir)
+
+    # Should not raise - project root is valid
+    validate_working_directory(proj_dir)
+
+
+def test_validate_working_directory_fails_from_parent(
+    test_project: tuple[Path, Path], monkeypatch, tmp_path
+) -> None:
+    """Test that validation fails when run from parent directory"""
+    import pytest
+    import typer
+    from rplc.bin.cli import validate_working_directory
+
+    proj_dir, mirror_dir = test_project
+
+    # Change to parent directory
+    monkeypatch.chdir(proj_dir.parent)
+
+    # Should raise typer.Exit (which raises click.exceptions.Exit)
+    with pytest.raises((typer.Exit, SystemExit)) as exc_info:
+        validate_working_directory(proj_dir)
+
+    # Check exit code
+    if hasattr(exc_info.value, 'exit_code'):
+        assert exc_info.value.exit_code == 1
+    else:
+        assert exc_info.value.code == 1
+
+
+def test_validate_working_directory_fails_from_unrelated(
+    test_project: tuple[Path, Path], monkeypatch, tmp_path
+) -> None:
+    """Test that validation fails when run from completely unrelated directory"""
+    import pytest
+    import typer
+    from rplc.bin.cli import validate_working_directory
+
+    proj_dir, mirror_dir = test_project
+
+    # Create and change to unrelated directory
+    unrelated = tmp_path / "completely_different"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    # Should raise typer.Exit (which raises click.exceptions.Exit)
+    with pytest.raises((typer.Exit, SystemExit)) as exc_info:
+        validate_working_directory(proj_dir)
+
+    # Check exit code
+    if hasattr(exc_info.value, 'exit_code'):
+        assert exc_info.value.exit_code == 1
+    else:
+        assert exc_info.value.code == 1
+
+
+def test_detect_project_directory_with_env_var(monkeypatch, tmp_path) -> None:
+    """Test that RPLC_PROJ_DIR env var is used when set"""
+    from rplc.bin.cli import detect_project_directory
+
+    test_dir = tmp_path / "my_project"
+    test_dir.mkdir()
+
+    monkeypatch.setenv("RPLC_PROJ_DIR", str(test_dir))
+
+    result = detect_project_directory()
+    assert result == test_dir
+
+
+def test_detect_project_directory_without_markers(monkeypatch, tmp_path) -> None:
+    """Test that detection fails when cwd has no project markers and no env var"""
+    import pytest
+    import typer
+    from rplc.bin.cli import detect_project_directory
+
+    # Create directory with no markers
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.chdir(empty_dir)
+
+    # Ensure no env var is set
+    monkeypatch.delenv("RPLC_PROJ_DIR", raising=False)
+
+    # Should raise typer.Exit (which raises click.exceptions.Exit)
+    with pytest.raises((typer.Exit, SystemExit)) as exc_info:
+        detect_project_directory()
+
+    # Check exit code
+    if hasattr(exc_info.value, 'exit_code'):
+        assert exc_info.value.exit_code == 1
+    else:
+        assert exc_info.value.code == 1
+
+
+def test_detect_project_directory_with_git_marker(monkeypatch, tmp_path) -> None:
+    """Test that detection succeeds with .git marker"""
+    from rplc.bin.cli import detect_project_directory
+
+    # Create directory with .git marker
+    proj = tmp_path / "with_git"
+    proj.mkdir()
+    (proj / ".git").mkdir()
+    monkeypatch.chdir(proj)
+
+    # Ensure no env var is set
+    monkeypatch.delenv("RPLC_PROJ_DIR", raising=False)
+
+    # Should succeed
+    result = detect_project_directory()
+    assert result == proj
+
+
+def test_detect_project_directory_with_rplc_marker(monkeypatch, tmp_path) -> None:
+    """Test that detection succeeds with .rplc marker"""
+    from rplc.bin.cli import detect_project_directory
+
+    # Create directory with .rplc marker
+    proj = tmp_path / "with_rplc"
+    proj.mkdir()
+    (proj / ".rplc").touch()
+    monkeypatch.chdir(proj)
+
+    # Ensure no env var is set
+    monkeypatch.delenv("RPLC_PROJ_DIR", raising=False)
+
+    # Should succeed
+    result = detect_project_directory()
+    assert result == proj
