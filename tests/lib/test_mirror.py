@@ -374,3 +374,251 @@ def test_swap_operations_are_idempotent(test_project: tuple[Path, Path], test_co
 
     # Should be identical and match initial state
     assert first_restore_yml == second_restore_yml == initial_yml
+
+
+def test_delete_when_swapped_out(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete operation when files are swapped out (normal happy path)"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Store original content for verification
+    orig_yml = (proj_dir / "main/resources/application.yml").read_text()
+
+    # Verify mirror artifacts exist before deletion
+    assert (mirror_dir / "main/resources/application.yml").exists()
+
+    # Delete the file
+    manager.delete(files=["main/resources/application.yml"])
+
+    # Verify mirror artifact was deleted
+    assert not (mirror_dir / "main/resources/application.yml").exists()
+
+    # Verify project file is unchanged
+    assert (proj_dir / "main/resources/application.yml").read_text() == orig_yml
+
+    # Verify config file was updated
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" not in config_content
+    # Other entries should still be present
+    assert "main/src/class.java" in config_content
+    assert "scratchdir/" in config_content
+
+
+def test_delete_fails_when_swapped_in(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that delete fails with clear error when file is swapped in"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Swap in the file
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    # Verify sentinel exists (this is the key indicator)
+    sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    assert sentinel.exists()
+
+    # When swapped in, mirror file has been moved to source, so backup should exist
+    backup_path = mirror_dir / f"main/resources/application.yml{manager.ORIGINAL_SUFFIX}"
+    assert backup_path.exists()
+
+    # Attempt to delete should fail with SystemExit
+    import pytest
+    with pytest.raises(SystemExit) as exc_info:
+        manager.delete(files=["main/resources/application.yml"])
+
+    assert exc_info.value.code == 1
+
+    # Verify sentinel and backup still exist (nothing was deleted)
+    assert sentinel.exists()
+    assert backup_path.exists()
+
+    # Verify config file was NOT modified
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" in config_content
+
+
+def test_delete_with_patterns(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete operation with glob patterns"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Delete all YAML files using pattern
+    manager.delete(pattern="*.yml")
+
+    # Verify YAML file was deleted
+    assert not (mirror_dir / "main/resources/application.yml").exists()
+
+    # Verify other files still exist
+    assert (mirror_dir / "main/src/class.java").exists()
+    assert (mirror_dir / "scratchdir/note.txt").exists()
+
+    # Verify config file was updated
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" not in config_content
+    assert "main/src/class.java" in config_content
+    assert "scratchdir/" in config_content
+
+
+def test_delete_removes_backup_files(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that delete removes backup files (.rplc.original) if present"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Swap in to create backup (backup is created when swapping in)
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    # Verify backup exists while swapped in
+    backup_path = mirror_dir / f"main/resources/application.yml{manager.ORIGINAL_SUFFIX}"
+    assert backup_path.exists()
+
+    # Swap out to restore normal state
+    manager.swap_out(files=["main/resources/application.yml"])
+
+    # After swap out, backup should be gone (moved back to source)
+    # But if we manually create a leftover backup to test deletion
+    backup_path.write_text("leftover backup")
+
+    # Delete the file
+    manager.delete(files=["main/resources/application.yml"])
+
+    # Verify both mirror and backup were deleted
+    assert not (mirror_dir / "main/resources/application.yml").exists()
+    assert not backup_path.exists()
+
+
+def test_delete_partial_artifacts(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete when only some artifacts exist"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Manually delete mirror file to simulate partial state
+    (mirror_dir / "main/resources/application.yml").unlink()
+
+    # Delete should still work and clean up config
+    manager.delete(files=["main/resources/application.yml"])
+
+    # Verify config file was updated
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" not in config_content
+
+
+def test_delete_nonexistent_path(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete with path that doesn't exist in config"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Attempt to delete non-existent path - should not crash
+    manager.delete(files=["nonexistent/file.txt"])
+
+    # Verify config file unchanged
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" in config_content
+    assert "main/src/class.java" in config_content
+
+
+def test_delete_directory(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete operation on a directory"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Verify directory exists
+    assert (mirror_dir / "scratchdir").exists()
+    assert (mirror_dir / "scratchdir/note.txt").exists()
+
+    # Delete the directory
+    manager.delete(files=["scratchdir/"])
+
+    # Verify directory was deleted
+    assert not (mirror_dir / "scratchdir").exists()
+    assert not (mirror_dir / "scratchdir/note.txt").exists()
+
+    # Verify config file was updated
+    config_content = test_config_file.read_text()
+    assert "scratchdir/" not in config_content
+
+
+def test_delete_multiple_files(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test deleting multiple files at once"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Delete multiple files
+    manager.delete(files=["main/resources/application.yml", "main/src/class.java"])
+
+    # Verify both were deleted
+    assert not (mirror_dir / "main/resources/application.yml").exists()
+    assert not (mirror_dir / "main/src/class.java").exists()
+
+    # Verify directory still exists
+    assert (mirror_dir / "scratchdir/note.txt").exists()
+
+    # Verify config file was updated
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" not in config_content
+    assert "main/src/class.java" not in config_content
+    assert "scratchdir/" in config_content
+
+
+def test_delete_partial_swap_fails(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that delete fails if any of the targeted files are swapped in"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Swap in one file but not the other
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    # Verify swap state: swapped file has sentinel, non-swapped has mirror
+    sentinel_yml = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    assert sentinel_yml.exists()
+    assert (mirror_dir / "main/src/class.java").exists()  # Not swapped, mirror exists
+
+    # Try to delete both - should fail because one is swapped in
+    import pytest
+    with pytest.raises(SystemExit) as exc_info:
+        manager.delete(files=["main/resources/application.yml", "main/src/class.java"])
+
+    assert exc_info.value.code == 1
+
+    # Verify nothing was deleted - sentinel and non-swapped mirror still exist
+    assert sentinel_yml.exists()
+    assert (mirror_dir / "main/src/class.java").exists()
+
+    # Verify config unchanged
+    config_content = test_config_file.read_text()
+    assert "main/resources/application.yml" in config_content
+    assert "main/src/class.java" in config_content

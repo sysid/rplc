@@ -92,6 +92,46 @@ rplc swapout --config rplc-config.md
 rplc swapout main/resources/application.yml --config rplc-config.md
 ```
 
+## Working Directory Requirements
+
+**IMPORTANT:** `rplc` must be run from within your project directory (or any subdirectory).
+
+The tool validates that your current working directory is within the project directory to prevent accidental operations on the wrong files.
+
+### Project Detection
+
+When no `RPLC_PROJ_DIR` is set, `rplc` looks for project markers in the current directory:
+- `.git/` - Git repository
+- `.envrc` - direnv configuration
+- `.rplc` - rplc marker file (create this to mark your project root)
+- `README.md`, `pyproject.toml`, `package.json` - Common project files
+
+**If no markers are found**, you must either:
+1. Set the `RPLC_PROJ_DIR` environment variable
+2. Use the `--proj-dir` flag
+3. Create a `.rplc` marker file in your project root
+
+### Examples
+
+```bash
+# ✓ Running from project root
+cd /path/to/myproject
+rplc swapin
+
+# ✓ Running from subdirectory
+cd /path/to/myproject/src
+rplc swapin
+
+# ✗ Running from parent directory (will fail)
+cd /path/to
+rplc swapin --proj-dir myproject  # Error: not within project directory
+
+# ✓ Using environment variable
+export RPLC_PROJ_DIR=/path/to/myproject
+cd /anywhere/within/myproject
+rplc swapin
+```
+
 ## Environment Variables
 
 RPLC can be configured using environment variables, which serve as defaults when command-line options are not provided:
@@ -99,7 +139,7 @@ RPLC can be configured using environment variables, which serve as defaults when
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `RPLC_CONFIG` | Path to configuration file | `sample.md` |
-| `RPLC_PROJ_DIR` | Project directory path | Current directory |
+| `RPLC_PROJ_DIR` | Project directory path | Auto-detected from cwd |
 | `RPLC_MIRROR_DIR` | Mirror directory path | `../mirror_proj` |
 | `RPLC_NO_ENV` | Disable .envrc management | `false` |
 
@@ -203,6 +243,53 @@ rplc swapout --pattern "*.yml"
 rplc swapout --exclude "*.log"
 ```
 
+#### `delete`
+Remove files/directories from rplc management.
+
+```bash
+rplc delete [FILES...] [OPTIONS]
+```
+
+**Important:** This command only works when files are swapped out (in their original state). Use `rplc swapout` first if files are currently swapped in.
+
+**What it removes:**
+- Mirror directory content
+- Backup files (`.rplc.original`)
+- Configuration file entries
+
+**Arguments:**
+- `FILES...`: Specific files or directories to remove from management (space-separated)
+
+**Options:**
+- `--pattern, -g`: Glob pattern for file selection
+- `--exclude, -x`: Exclude patterns (can be used multiple times)
+- `--proj-dir, -p`: Project directory (env: `RPLC_PROJ_DIR`)
+- `--mirror-dir, -m`: Mirror directory (env: `RPLC_MIRROR_DIR`)
+- `--config, -c`: Configuration file (env: `RPLC_CONFIG`)
+- `--no-env`: Disable `.envrc` management (env: `RPLC_NO_ENV`)
+
+**Examples:**
+```bash
+# Remove a specific file from management
+rplc delete main/resources/application.yml
+
+# Remove multiple files
+rplc delete main/resources/application.yml main/src/class.java
+
+# Remove using glob patterns
+rplc delete --pattern "*.yml"
+
+# Remove a directory
+rplc delete scratchdir/
+
+# Remove all except certain files
+rplc delete --pattern "main/**/*" --exclude "*.log"
+
+# If file is swapped in, you'll get an error:
+# Error: Cannot delete - currently swapped in
+# Run 'rplc swapout' first to restore original state
+```
+
 ### Configuration Format
 
 Configuration files use Markdown format with a specific structure. Only content under the `# Development` → `## rplc-config` section is processed:
@@ -293,6 +380,29 @@ Swapped State:    Sentinel files exist, RPLC_SWAPPED=1
 
 ## Troubleshooting
 
+### Common Errors
+
+**Error: "rplc must be run from within the project directory"**
+
+This means you're trying to run `rplc` from a directory that's not within your project.
+
+Solutions:
+1. `cd` into your project directory or any subdirectory within it
+2. Set `RPLC_PROJ_DIR` environment variable to your project path
+3. Use `--proj-dir` flag (but still run from within that directory)
+
+**Warning: "Current directory doesn't appear to be a project root"**
+
+This occurs when no project markers are found in the current directory and `RPLC_PROJ_DIR` is not set.
+
+Solutions:
+1. Ensure you're in the correct project directory
+2. Create a `.rplc` marker file: `touch .rplc`
+3. Set `RPLC_PROJ_DIR` environment variable
+4. Use `--proj-dir` flag explicitly
+
+### General Troubleshooting
+
 ```bash
 # Show detailed help for any command
 rplc --help
@@ -301,8 +411,11 @@ rplc swapin --help
 # Show current configuration and status
 rplc info
 
-# Enable verbose output (if available)
+# Enable verbose output
 rplc -v swapin
+
+# Check which directory rplc thinks is the project
+rplc info  # Shows project directory in configuration table
 ```
 
 ## Development

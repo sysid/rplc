@@ -140,6 +140,112 @@ class MirrorManager:
 
             print(f"[green]Swapped out: {config.source_path}[/green]")
 
+    def delete(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
+        """
+        Remove paths from rplc management - only works when swapped out.
+
+        Removes:
+        - Mirror directory content (mirror_path)
+        - Backup files (.rplc.original) if present
+        - Configuration entry from config file
+
+        Raises SystemExit if any target is currently swapped in.
+        """
+        configs = self._filter_configs(files=files, pattern=pattern, exclude=exclude)
+
+        if not configs:
+            print("[yellow]No matching files found[/yellow]")
+            return
+
+        logger.debug(f"Deleting: {configs}")
+        print("[cyan]Checking swap status...[/cyan]")
+
+        # ==============================================================================
+        # Safety Check: Ensure Nothing Is Swapped In
+        # ==============================================================================
+        #
+        # We only allow deletion when files are swapped out to avoid edge cases
+        # where the user might lose data. If any sentinel file exists, that means
+        # the file is currently swapped in and we abort the operation.
+
+        swapped_in_files = []
+        for config in configs:
+            sentinel = self._get_sentinel_path(config)
+            if sentinel.exists():
+                swapped_in_files.append(config.source_path)
+
+        if swapped_in_files:
+            print("[red]✗ Error: Cannot delete - the following files are currently swapped in:[/red]")
+            for path in swapped_in_files:
+                try:
+                    rel_path = path.relative_to(self.proj_dir)
+                except ValueError:
+                    rel_path = path
+                print(f"  [red]• {rel_path}[/red]")
+            print("[yellow]Run 'rplc swapout' first to restore original state[/yellow]")
+            raise SystemExit(1)
+
+        print("[green]✓ All files are swapped out[/green]")
+        print()
+
+        # ==============================================================================
+        # Delete Mirror Artifacts
+        # ==============================================================================
+        #
+        # For each configured path, we remove the mirror content and any backup files.
+        # We print verbose output so the user knows exactly what's being deleted.
+
+        print("[cyan]Deleting mirror artifacts:[/cyan]")
+        deleted_count = 0
+
+        for config in configs:
+            # Remove mirror content
+            if config.mirror_path.exists():
+                if config.mirror_path.is_dir():
+                    shutil.rmtree(config.mirror_path)
+                    print(f"  [dim]Removed directory: {config.mirror_path}[/dim]")
+                else:
+                    config.mirror_path.unlink()
+                    print(f"  [dim]Removed file: {config.mirror_path}[/dim]")
+                deleted_count += 1
+            else:
+                print(f"  [dim]Already removed: {config.mirror_path}[/dim]")
+
+            # Remove backup if it exists
+            backup_path = self._get_backup_path(config)
+            if backup_path.exists():
+                if backup_path.is_dir():
+                    shutil.rmtree(backup_path)
+                    print(f"  [dim]Removed backup: {backup_path}[/dim]")
+                else:
+                    backup_path.unlink()
+                    print(f"  [dim]Removed backup: {backup_path}[/dim]")
+
+        print(f"[green]✓ Deleted {deleted_count} mirror artifact(s)[/green]")
+        print()
+
+        # ==============================================================================
+        # Update Configuration File
+        # ==============================================================================
+        #
+        # Remove the path entries from the configuration file so they're no longer
+        # managed by rplc. This preserves the markdown structure and other entries.
+
+        print(f"[cyan]Updating configuration file: {self.config_file}[/cyan]")
+        removed_count = 0
+
+        for config in configs:
+            if ConfigParser.remove_config_entry(self.config_file, config.source_path, self.proj_dir):
+                removed_count += 1
+
+        if removed_count > 0:
+            print(f"[green]✓ Removed {removed_count} configuration entr{'y' if removed_count == 1 else 'ies'}[/green]")
+        else:
+            print("[yellow]No configuration entries found to remove[/yellow]")
+
+        print()
+        print(f"[green]Successfully removed {len(configs)} file(s) from rplc management[/green]")
+
     def _filter_configs(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> List[MirrorConfig]:
         """Filter configs based on specified files, patterns, and exclusions"""
         # If no filters specified, return all configs
