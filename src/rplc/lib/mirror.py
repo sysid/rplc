@@ -33,7 +33,7 @@ class MirrorManager:
         self.config_file = config_file.resolve()
         self.proj_dir = proj_dir.resolve()
         self.mirror_dir = mirror_dir.resolve()
-        self.configs = ConfigParser.parse_config(config_file)
+        self.configs: List[MirrorConfig] = ConfigParser.parse_config(config_file)
         self.manage_env = manage_env
         # Convert paths to absolute with correct bases
         for config in self.configs:

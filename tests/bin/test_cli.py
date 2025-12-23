@@ -318,44 +318,10 @@ def test_cli_invalid_file_warning(
     assert "Warning: No configuration found for: nonexistent.txt" in result.output
 
 
-def test_command_fails_when_run_from_wrong_directory(
-    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path
-) -> None:
-    """Test that commands fail when run from outside project directory"""
-    proj_dir, mirror_dir = test_project
-    runner = CliRunner()
-
-    # Create a separate directory outside the project
-    wrong_dir = tmp_path / "wrong_location"
-    wrong_dir.mkdir()
-
-    # Try to run from wrong directory with explicit --proj-dir
-    # This should fail because cwd is not within proj_dir
-    result = runner.invoke(
-        app,
-        [
-            "info",
-            "--proj-dir",
-            str(proj_dir),
-            "--mirror-dir",
-            str(mirror_dir),
-            "--config",
-            str(test_config_file),
-        ],
-        # Change to wrong directory
-        # Note: CliRunner doesn't support changing cwd, so we'll test this differently
-        # by using monkeypatch in a different test
-    )
-
-    # Since CliRunner runs in same cwd, we need a different approach
-    # This test is more about documentation - actual validation tested below
-
-
 def test_validate_working_directory_from_subdirectory(
     test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
 ) -> None:
     """Test that commands succeed when run from subdirectory within project"""
-    import os
     from rplc.bin.cli import validate_working_directory
 
     proj_dir, mirror_dir = test_project
@@ -388,7 +354,6 @@ def test_validate_working_directory_fails_from_parent(
     test_project: tuple[Path, Path], monkeypatch, tmp_path
 ) -> None:
     """Test that validation fails when run from parent directory"""
-    import pytest
     import typer
     from rplc.bin.cli import validate_working_directory
 
@@ -412,7 +377,6 @@ def test_validate_working_directory_fails_from_unrelated(
     test_project: tuple[Path, Path], monkeypatch, tmp_path
 ) -> None:
     """Test that validation fails when run from completely unrelated directory"""
-    import pytest
     import typer
     from rplc.bin.cli import validate_working_directory
 
@@ -449,7 +413,6 @@ def test_detect_project_directory_with_env_var(monkeypatch, tmp_path) -> None:
 
 def test_detect_project_directory_without_markers(monkeypatch, tmp_path) -> None:
     """Test that detection fails when cwd has no project markers and no env var"""
-    import pytest
     import typer
     from rplc.bin.cli import detect_project_directory
 

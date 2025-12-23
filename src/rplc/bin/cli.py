@@ -48,8 +48,8 @@ def validate_working_directory(proj_dir: Path) -> None:
         console.print()
         console.print("[yellow]Solutions:[/yellow]")
         console.print(f"  1. cd {proj_dir_resolved}")
-        console.print(f"  2. Set RPLC_PROJ_DIR to your current directory")
-        console.print(f"  3. Use --proj-dir flag with correct path")
+        console.print("  2. Set RPLC_PROJ_DIR to your current directory")
+        console.print("  3. Use --proj-dir flag with correct path")
         raise typer.Exit(1)
 
 
@@ -209,33 +209,33 @@ def info(
     files_table.add_column("Mirror Path", style="white")
     files_table.add_column("Status", style="yellow", width=15)
 
-    for config in manager.configs:
+    for cfg in manager.configs:
         # Determine type
-        item_type = "Directory" if config.is_directory else "File"
+        item_type = "Directory" if cfg.is_directory else "File"
 
         # Check status
-        sentinel = manager._get_sentinel_path(config)
+        sentinel = manager._get_sentinel_path(cfg)
         if sentinel.exists():
             status = "🔄 Swapped In"
-        elif config.source_path.exists() and config.mirror_path.exists():
+        elif cfg.source_path.exists() and cfg.mirror_path.exists():
             status = "📁 Both Exist"
-        elif config.source_path.exists():
+        elif cfg.source_path.exists():
             status = "📝 Source Only"
-        elif config.mirror_path.exists():
+        elif cfg.mirror_path.exists():
             status = "🪞 Mirror Only"
         else:
             status = "❌ Missing"
 
         # Make paths relative to their base directories for display
         try:
-            source_rel = config.source_path.relative_to(proj_dir.resolve())
+            source_rel = cfg.source_path.relative_to(proj_dir.resolve())
         except ValueError:
-            source_rel = config.source_path
+            source_rel = cfg.source_path
 
         try:
-            mirror_rel = config.mirror_path.relative_to(mirror_dir.resolve())
+            mirror_rel = cfg.mirror_path.relative_to(mirror_dir.resolve())
         except ValueError:
-            mirror_rel = config.mirror_path
+            mirror_rel = cfg.mirror_path
 
         files_table.add_row(item_type, str(source_rel), str(mirror_rel), status)
 
@@ -256,7 +256,7 @@ def info(
     # Current Status Summary
     console.print()
     swapped_count = sum(
-        1 for config in manager.configs if manager._get_sentinel_path(config).exists()
+        1 for cfg in manager.configs if manager._get_sentinel_path(cfg).exists()
     )
     total_count = len(manager.configs)
 
@@ -273,13 +273,13 @@ def info(
     # Detailed swap status if any files are swapped
     if swapped_count > 0:
         console.print("\n[bold]Currently Swapped Files:[/bold]")
-        for config in manager.configs:
-            sentinel = manager._get_sentinel_path(config)
+        for cfg in manager.configs:
+            sentinel = manager._get_sentinel_path(cfg)
             if sentinel.exists():
                 try:
-                    source_rel = config.source_path.relative_to(proj_dir.resolve())
+                    source_rel = cfg.source_path.relative_to(proj_dir.resolve())
                 except ValueError:
-                    source_rel = config.source_path
+                    source_rel = cfg.source_path
                 console.print(f"  • {source_rel}")
 
     # Show environment variable status more prominently
