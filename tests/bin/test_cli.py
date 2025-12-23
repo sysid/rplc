@@ -402,7 +402,7 @@ def test_validate_working_directory_fails_from_parent(
         validate_working_directory(proj_dir)
 
     # Check exit code
-    if hasattr(exc_info.value, 'exit_code'):
+    if hasattr(exc_info.value, "exit_code"):
         assert exc_info.value.exit_code == 1
     else:
         assert exc_info.value.code == 1
@@ -428,7 +428,7 @@ def test_validate_working_directory_fails_from_unrelated(
         validate_working_directory(proj_dir)
 
     # Check exit code
-    if hasattr(exc_info.value, 'exit_code'):
+    if hasattr(exc_info.value, "exit_code"):
         assert exc_info.value.exit_code == 1
     else:
         assert exc_info.value.code == 1
@@ -466,7 +466,7 @@ def test_detect_project_directory_without_markers(monkeypatch, tmp_path) -> None
         detect_project_directory()
 
     # Check exit code
-    if hasattr(exc_info.value, 'exit_code'):
+    if hasattr(exc_info.value, "exit_code"):
         assert exc_info.value.exit_code == 1
     else:
         assert exc_info.value.code == 1

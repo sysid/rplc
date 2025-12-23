@@ -20,6 +20,7 @@ class MirrorManager:
     MIRROR_BKP_SUFFIX = ".rplc_active.backup"
     ENVRC_FILE = ".envrc"
     RPLC_ENV_VAR = "RPLC_SWAPPED"
+    GITIGNORE_DISABLED_SUFFIX = ".rplc-disabled"
 
     def __init__(
         self,
@@ -92,6 +93,8 @@ class MirrorManager:
 
             # Move mirror content to source
             self._move_path(config.mirror_path, config.source_path)
+            if config.is_directory:
+                self._enable_gitignore_files(config.source_path)
 
             print(f"[green]Swapped in: {config.source_path}[/green]")
 
@@ -117,6 +120,8 @@ class MirrorManager:
                 if not config.mirror_path.exists() and config.source_path.exists():
                     logger.debug(f"Initializing mirror for: {config.source_path}")
                     self._move_path(config.source_path, config.mirror_path)
+                    if config.is_directory:
+                        self._disable_gitignore_files(config.mirror_path)
                     print(f"[green]Initialized mirror: {config.mirror_path}[/green]")
                 else:
                     print(f"[yellow]Already swapped out: {config.source_path}[/yellow]")
@@ -125,6 +130,8 @@ class MirrorManager:
             # Store modified content in mirror
             if config.source_path.exists():
                 self._move_path(config.source_path, config.mirror_path)
+                if config.is_directory:
+                    self._disable_gitignore_files(config.mirror_path)
 
             # Restore backup to source path if it exists
             if backup_path.exists():
@@ -364,3 +371,31 @@ class MirrorManager:
             shutil.copytree(src, dst)
         else:
             shutil.copy2(src, dst)
+
+    @staticmethod
+    def _disable_gitignore_files(path: Path) -> None:
+        """Rename .gitignore → .gitignore.rplc-disabled in directory tree.
+
+        Prevents .gitignore files in mirror directories from affecting the
+        parent project's git behavior when files are swapped out.
+        """
+        if not path.is_dir():
+            return
+        for gitignore in path.rglob(".gitignore"):
+            disabled = gitignore.parent / f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"
+            gitignore.rename(disabled)
+            logger.debug(f"Disabled gitignore: {gitignore} → {disabled}")
+
+    @staticmethod
+    def _enable_gitignore_files(path: Path) -> None:
+        """Rename .gitignore.rplc-disabled → .gitignore in directory tree.
+
+        Restores .gitignore files when content is swapped back into the
+        source project.
+        """
+        if not path.is_dir():
+            return
+        for disabled in path.rglob(f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"):
+            gitignore = disabled.parent / ".gitignore"
+            disabled.rename(gitignore)
+            logger.debug(f"Enabled gitignore: {disabled} → {gitignore}")

@@ -40,7 +40,9 @@ def validate_working_directory(proj_dir: Path) -> None:
         cwd.relative_to(proj_dir_resolved)
     except ValueError:
         # cwd is not within proj_dir
-        console.print("[red]✗ Error: rplc must be run from within the project directory[/red]")
+        console.print(
+            "[red]✗ Error: rplc must be run from within the project directory[/red]"
+        )
         console.print(f"  [dim]Current directory:[/dim] {cwd}")
         console.print(f"  [dim]Project directory:[/dim] {proj_dir_resolved}")
         console.print()
@@ -72,11 +74,21 @@ def detect_project_directory() -> Path:
     cwd = Path.cwd()
 
     # Check for common project markers
-    markers = [".git", ".envrc", "sample.md", "README.md", "pyproject.toml", "package.json", ".rplc"]
+    markers = [
+        ".git",
+        ".envrc",
+        "sample.md",
+        "README.md",
+        "pyproject.toml",
+        "package.json",
+        ".rplc",
+    ]
     has_marker = any((cwd / marker).exists() for marker in markers)
 
     if not has_marker:
-        console.print("[yellow]⚠ Warning: Current directory doesn't appear to be a project root[/yellow]")
+        console.print(
+            "[yellow]⚠ Warning: Current directory doesn't appear to be a project root[/yellow]"
+        )
         console.print(f"  [dim]Directory:[/dim] {cwd}")
         console.print(f"  [dim]No project markers found:[/dim] {', '.join(markers)}")
         console.print()
@@ -408,7 +420,8 @@ def swapout(
 @app.command()
 def delete(
     files: Annotated[
-        Optional[List[str]], typer.Argument(help="Files/directories to remove from management")
+        Optional[List[str]],
+        typer.Argument(help="Files/directories to remove from management"),
     ] = None,
     pattern: Annotated[
         Optional[str],
