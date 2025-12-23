@@ -63,7 +63,7 @@ format:  ## Format code with ruff
 BUILDING:  ## ############################################################
 
 .PHONY: build
-build: clean style  ## format and build
+build: clean  ## format and build
 	@echo "building"
 	python -m build
 
