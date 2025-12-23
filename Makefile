@@ -39,9 +39,6 @@ init:  ## init: remove test setup 'xxx'
 # Code Quality \
 QUALITY: ## ############################################################
 
-.PHONY: style
-style: format  ## perform code style format
-
 .PHONY: lint
 lint:  ## check style with ruff
 	ruff check $(pkg_src) $(tests_src)
@@ -50,9 +47,12 @@ lint:  ## check style with ruff
 lint-fix:  ## check style with ruff
 	ruff check --fix $(pkg_src) $(tests_src)
 
-.PHONY: mypy
-mypy:  ## check type hint annotations
-	@mypy --config-file pyproject.toml --install-types --non-interactive $(pkg_src)
+.PHONY: static-analysis
+static-analysis: lint-fix format ty  ## run all static code analysis (check/format/ty)
+
+.PHONY: ty
+ty:  ## check type hint annotations
+	@uvx ty check $(pkg_src)
 
 .PHONY: format
 format:  ## Format code with ruff
