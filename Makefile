@@ -78,12 +78,12 @@ upload:   ## twine upload
 	twine upload --verbose dist/*
 
 .PHONY: install
-install: uninstall  ## pipx install
+install: uninstall  ## uv install
 	uv tool install -e .
 	rplc --install-completion bash
 
 .PHONY: uninstall
-uninstall:  ## pipx uninstall
+uninstall:  ## uv uninstall
 	-uv tool uninstall rplc
 
 .PHONY: bump-major
