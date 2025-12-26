@@ -2,6 +2,8 @@
 import shutil
 from pathlib import Path
 
+import pytest
+
 from rplc.lib.mirror import MirrorManager
 
 
@@ -624,8 +626,13 @@ def test_delete_partial_swap_fails(test_project: tuple[Path, Path], test_config_
     assert "main/src/class.java" in config_content
 
 
-def test_gitignore_disabled_on_swap_out(test_project: tuple[Path, Path], test_config_file: Path) -> None:
-    """Test that .gitignore files are renamed to .gitignore.rplc-disabled on swap-out"""
+# ==============================================================================
+# .gitignore neutralization tests
+# ==============================================================================
+
+
+def test_gitignore_neutralization_in_directories(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test .gitignore neutralization for directories: swap-out, swap-in, nested files."""
     proj_dir, mirror_dir = test_project
     manager = MirrorManager(
         config_file=test_config_file,
@@ -633,111 +640,36 @@ def test_gitignore_disabled_on_swap_out(test_project: tuple[Path, Path], test_co
         mirror_dir=mirror_dir
     )
 
-    # Swap in first (to set up sentinel)
+    # Swap in, then add nested .gitignore files
     manager.swap_in(files=["scratchdir/"])
-
-    # Verify mirror content is in place
-    assert (proj_dir / "scratchdir/note.txt").read_text() == "mirror note"
-
-    # Add .gitignore AFTER swap-in (simulating user adding it while working)
-    (proj_dir / "scratchdir/.gitignore").write_text("thoughts/\n")
-
-    # Swap out - this moves the modified content (with .gitignore) back to mirror
-    manager.swap_out(files=["scratchdir/"])
-
-    # Verify .gitignore was renamed to .gitignore.rplc-disabled in mirror
-    assert not (mirror_dir / "scratchdir/.gitignore").exists()
-    assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").exists()
-    assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").read_text() == "thoughts/\n"
-
-
-def test_gitignore_enabled_on_swap_in(test_project: tuple[Path, Path], test_config_file: Path) -> None:
-    """Test that .gitignore.rplc-disabled files are renamed back to .gitignore on swap-in"""
-    proj_dir, mirror_dir = test_project
-    manager = MirrorManager(
-        config_file=test_config_file,
-        proj_dir=proj_dir,
-        mirror_dir=mirror_dir
-    )
-
-    # Create disabled .gitignore in mirror (simulating state after swap-out)
-    (mirror_dir / "scratchdir/.gitignore.rplc-disabled").write_text("thoughts/\n")
-
-    # Swap in the directory
-    manager.swap_in(files=["scratchdir/"])
-
-    # Verify .gitignore was restored in the project directory
-    assert (proj_dir / "scratchdir/.gitignore").exists()
-    assert not (proj_dir / "scratchdir/.gitignore.rplc-disabled").exists()
-    assert (proj_dir / "scratchdir/.gitignore").read_text() == "thoughts/\n"
-
-
-def test_nested_gitignore_files_handled(test_project: tuple[Path, Path], test_config_file: Path) -> None:
-    """Test that nested .gitignore files are all renamed during swap operations"""
-    proj_dir, mirror_dir = test_project
-    manager = MirrorManager(
-        config_file=test_config_file,
-        proj_dir=proj_dir,
-        mirror_dir=mirror_dir
-    )
-
-    # Swap in first
-    manager.swap_in(files=["scratchdir/"])
-
-    # Create nested structure with multiple .gitignore files AFTER swap-in
     (proj_dir / "scratchdir/subdir").mkdir()
     (proj_dir / "scratchdir/.gitignore").write_text("*.tmp\n")
     (proj_dir / "scratchdir/subdir/.gitignore").write_text("*.log\n")
 
-    # Swap out
+    # Swap out - all .gitignore files should be neutralized
     manager.swap_out(files=["scratchdir/"])
-
-    # Verify all .gitignore files were renamed in mirror
     assert not (mirror_dir / "scratchdir/.gitignore").exists()
     assert not (mirror_dir / "scratchdir/subdir/.gitignore").exists()
-    assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").exists()
-    assert (mirror_dir / "scratchdir/subdir/.gitignore.rplc-disabled").exists()
     assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").read_text() == "*.tmp\n"
     assert (mirror_dir / "scratchdir/subdir/.gitignore.rplc-disabled").read_text() == "*.log\n"
 
-    # Swap in again
+    # Swap in - all .gitignore files should be restored
     manager.swap_in(files=["scratchdir/"])
-
-    # Verify all .gitignore files were restored in project
-    assert (proj_dir / "scratchdir/.gitignore").exists()
-    assert (proj_dir / "scratchdir/subdir/.gitignore").exists()
     assert (proj_dir / "scratchdir/.gitignore").read_text() == "*.tmp\n"
     assert (proj_dir / "scratchdir/subdir/.gitignore").read_text() == "*.log\n"
 
 
-def test_gitignore_not_affected_for_file_swaps(test_project: tuple[Path, Path], test_config_file: Path) -> None:
-    """Test that .gitignore handling only applies to directory swaps, not file swaps"""
-    proj_dir, mirror_dir = test_project
-    manager = MirrorManager(
-        config_file=test_config_file,
-        proj_dir=proj_dir,
-        mirror_dir=mirror_dir
-    )
-
-    # File swaps (application.yml) should not trigger gitignore rename logic
-    # This test verifies no errors occur when swapping files
-    manager.swap_in(files=["main/resources/application.yml"])
-    manager.swap_out(files=["main/resources/application.yml"])
-
-    # Verify normal operation completed
-    assert (proj_dir / "main/resources/application.yml").exists()
-
-
-def test_gitignore_disabled_on_initial_swap_out(test_project: tuple[Path, Path], test_config_file: Path) -> None:
-    """Test that .gitignore files are renamed during initial mirror initialization"""
+def test_standalone_gitignore_full_cycle(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test standalone .gitignore: initial swap-out, swap-in, modify, swap-out again."""
     proj_dir, mirror_dir = test_project
 
-    # Clear mirror directory
-    shutil.rmtree(mirror_dir)
-    mirror_dir.mkdir()
+    # Add standalone .gitignore to config
+    config_content = test_config_file.read_text()
+    config_content += "config/.gitignore\n"
+    test_config_file.write_text(config_content)
 
-    # Create .gitignore in project directory
-    (proj_dir / "scratchdir/.gitignore").write_text("thoughts/\n")
+    (proj_dir / "config").mkdir(exist_ok=True)
+    (proj_dir / "config/.gitignore").write_text("*.log\n")
 
     manager = MirrorManager(
         config_file=test_config_file,
@@ -745,10 +677,82 @@ def test_gitignore_disabled_on_initial_swap_out(test_project: tuple[Path, Path],
         mirror_dir=mirror_dir
     )
 
-    # Initial swap-out (initializes mirror)
-    manager.swap_out(files=["scratchdir/"])
+    # Initial swap-out - neutralizes in mirror
+    manager.swap_out(files=["config/.gitignore"])
+    assert not (mirror_dir / "config/.gitignore").exists()
+    assert (mirror_dir / "config/.gitignore.rplc-disabled").read_text() == "*.log\n"
+    assert not (proj_dir / "config/.gitignore").exists()
 
-    # Verify .gitignore was renamed in mirror during initialization
-    assert not (mirror_dir / "scratchdir/.gitignore").exists()
-    assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").exists()
-    assert (mirror_dir / "scratchdir/.gitignore.rplc-disabled").read_text() == "thoughts/\n"
+    # Swap in - restores to project
+    manager.swap_in(files=["config/.gitignore"])
+    assert (proj_dir / "config/.gitignore").read_text() == "*.log\n"
+    assert not (mirror_dir / "config/.gitignore.rplc-disabled").exists()
+
+    # Modify and swap out again
+    (proj_dir / "config/.gitignore").write_text("*.log\n*.tmp\n")
+    manager.swap_out(files=["config/.gitignore"])
+    assert (mirror_dir / "config/.gitignore.rplc-disabled").read_text() == "*.log\n*.tmp\n"
+
+
+def test_standalone_gitignore_delete(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test delete operation finds neutralized .gitignore files."""
+    proj_dir, mirror_dir = test_project
+
+    config_content = test_config_file.read_text()
+    config_content += "config/.gitignore\n"
+    test_config_file.write_text(config_content)
+
+    (mirror_dir / "config").mkdir(exist_ok=True)
+    (mirror_dir / "config/.gitignore.rplc-disabled").write_text("*.log\n")
+
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    manager.delete(files=["config/.gitignore"])
+
+    assert not (mirror_dir / "config/.gitignore.rplc-disabled").exists()
+    assert not (mirror_dir / "config/.gitignore").exists()
+
+
+def test_swap_in_rejects_bare_gitignore(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test swap-in fails when bare .gitignore exists in mirror (standalone or in directory)."""
+    proj_dir, mirror_dir = test_project
+
+    # Test 1: Bare .gitignore inside a directory
+    (mirror_dir / "scratchdir/.gitignore").write_text("*.tmp\n")
+
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        manager.swap_in(files=["scratchdir/"])
+    assert exc_info.value.code == 1
+    assert (mirror_dir / "scratchdir/.gitignore").exists()  # unchanged
+
+    # Cleanup for test 2
+    (mirror_dir / "scratchdir/.gitignore").unlink()
+
+    # Test 2: Standalone bare .gitignore
+    config_content = test_config_file.read_text()
+    config_content += "config/.gitignore\n"
+    test_config_file.write_text(config_content)
+
+    (mirror_dir / "config").mkdir(exist_ok=True)
+    (mirror_dir / "config/.gitignore").write_text("*.log\n")
+
+    manager2 = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        manager2.swap_in(files=["config/.gitignore"])
+    assert exc_info.value.code == 1
+    assert (mirror_dir / "config/.gitignore").exists()  # unchanged
