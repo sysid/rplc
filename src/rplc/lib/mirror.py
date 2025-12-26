@@ -22,6 +22,49 @@ class MirrorManager:
     RPLC_ENV_VAR = "RPLC_SWAPPED"
     GITIGNORE_DISABLED_SUFFIX = ".rplc-disabled"
 
+    @staticmethod
+    def _is_gitignore_file(path: Path) -> bool:
+        """Check if path refers to a .gitignore file"""
+        return path.name == ".gitignore"
+
+    @staticmethod
+    def _get_neutralized_path(path: Path) -> Path:
+        """Get neutralized form: .gitignore -> .gitignore.rplc-disabled"""
+        if path.name == ".gitignore":
+            return path.parent / f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"
+        return path
+
+    def _get_mirror_physical_path(self, config: MirrorConfig) -> Optional[Path]:
+        """Get actual path in mirror. For .gitignore files, returns neutralized path only.
+
+        Returns None if no mirror content exists.
+        """
+        if config.is_directory:
+            return config.mirror_path if config.mirror_path.exists() else None
+
+        if self._is_gitignore_file(config.mirror_path):
+            neutralized = self._get_neutralized_path(config.mirror_path)
+            return neutralized if neutralized.exists() else None
+
+        return config.mirror_path if config.mirror_path.exists() else None
+
+    def _find_bare_gitignore_in_mirror(self, configs: List[MirrorConfig]) -> List[Path]:
+        """Find bare .gitignore files in mirror that should be neutralized.
+
+        Returns list of paths to bare .gitignore files that need to be renamed
+        to .gitignore.rplc-disabled before swap-in can proceed.
+        """
+        bare_gitignores = []
+        for config in configs:
+            if config.is_directory:
+                if config.mirror_path.exists():
+                    for gitignore in config.mirror_path.rglob(".gitignore"):
+                        bare_gitignores.append(gitignore)
+            elif self._is_gitignore_file(config.mirror_path):
+                if config.mirror_path.exists():
+                    bare_gitignores.append(config.mirror_path)
+        return bare_gitignores
+
     def __init__(
         self,
         config_file: Path,
@@ -68,12 +111,30 @@ class MirrorManager:
         configs = self._filter_configs(files=files, pattern=pattern, exclude=exclude)
         logger.debug(f"Swapping in: {configs}")
 
+        # Safety check: ensure no bare .gitignore files in mirror
+        bare_gitignores = self._find_bare_gitignore_in_mirror(configs)
+        if bare_gitignores:
+            print("[red]✗ Error: Found bare .gitignore files in mirror that need to be neutralized:[/red]")
+            for path in bare_gitignores:
+                try:
+                    rel_path = path.relative_to(self.mirror_dir)
+                except ValueError:
+                    rel_path = path
+                expected = rel_path.parent / f"{rel_path.name}{self.GITIGNORE_DISABLED_SUFFIX}"
+                print(f"  [red]• {rel_path}[/red]")
+                print(f"    [dim]Rename to: {expected}[/dim]")
+            print()
+            print("[yellow]Please rename these files manually, then retry swap-in.[/yellow]")
+            raise SystemExit(1)
+
         # Only update envrc if we're actually swapping something
         if configs:
             self._update_envrc(set_var=True)
 
         for config in configs:
-            if not config.mirror_path.exists():
+            # Get actual physical path in mirror (accounting for neutralized .gitignore)
+            physical_path = self._get_mirror_physical_path(config)
+            if physical_path is None:
                 print(f"[yellow]Warning: Mirror path does not exist: {config.mirror_path}[/yellow]")
                 continue
 
@@ -83,8 +144,7 @@ class MirrorManager:
                 continue
 
             # Create sentinel file first to mark the start of the operation
-            # self._create_sentinel(config)
-            self._copy_path(config.mirror_path, sentinel)
+            self._copy_path(physical_path, sentinel)
 
             # Backup original if it exists to .rplc.original
             if config.source_path.exists():
@@ -92,7 +152,8 @@ class MirrorManager:
                 self._move_path(config.source_path, backup_path)
 
             # Move mirror content to source
-            self._move_path(config.mirror_path, config.source_path)
+            # For neutralized .gitignore files, move restores the original name
+            self._move_path(physical_path, config.source_path)
             if config.is_directory:
                 self._enable_gitignore_files(config.source_path)
 
@@ -117,11 +178,10 @@ class MirrorManager:
             # If no sentinel exists, this path hasn't been swapped in
             if not sentinel.exists():
                 # Special case: Initialize mirror directory if target doesn't exist
-                if not config.mirror_path.exists() and config.source_path.exists():
+                if self._get_mirror_physical_path(config) is None and config.source_path.exists():
                     logger.debug(f"Initializing mirror for: {config.source_path}")
                     self._move_path(config.source_path, config.mirror_path)
-                    if config.is_directory:
-                        self._disable_gitignore_files(config.mirror_path)
+                    self._disable_gitignore_files(config.mirror_path)
                     print(f"[green]Initialized mirror: {config.mirror_path}[/green]")
                 else:
                     print(f"[yellow]Already swapped out: {config.source_path}[/yellow]")
@@ -130,8 +190,7 @@ class MirrorManager:
             # Store modified content in mirror
             if config.source_path.exists():
                 self._move_path(config.source_path, config.mirror_path)
-                if config.is_directory:
-                    self._disable_gitignore_files(config.mirror_path)
+                self._disable_gitignore_files(config.mirror_path)
 
             # Restore backup to source path if it exists
             if backup_path.exists():
@@ -206,14 +265,15 @@ class MirrorManager:
         deleted_count = 0
 
         for config in configs:
-            # Remove mirror content
-            if config.mirror_path.exists():
-                if config.mirror_path.is_dir():
-                    shutil.rmtree(config.mirror_path)
-                    print(f"  [dim]Removed directory: {config.mirror_path}[/dim]")
+            # Remove mirror content (accounting for neutralized .gitignore files)
+            physical_path = self._get_mirror_physical_path(config)
+            if physical_path is not None:
+                if physical_path.is_dir():
+                    shutil.rmtree(physical_path)
+                    print(f"  [dim]Removed directory: {physical_path}[/dim]")
                 else:
-                    config.mirror_path.unlink()
-                    print(f"  [dim]Removed file: {config.mirror_path}[/dim]")
+                    physical_path.unlink()
+                    print(f"  [dim]Removed file: {physical_path}[/dim]")
                 deleted_count += 1
             else:
                 print(f"  [dim]Already removed: {config.mirror_path}[/dim]")
@@ -325,12 +385,6 @@ class MirrorManager:
         rel_path = config.source_path.relative_to(self.proj_dir)
         return (self.mirror_dir / f"{rel_path}{self.SENTINEL_SUFFIX}").resolve()
 
-    def _create_sentinel(self, config: MirrorConfig) -> None:
-        """Create a sentinel file for a swapped path"""
-        sentinel = self._get_sentinel_path(config)
-        sentinel.parent.mkdir(parents=True, exist_ok=True)
-        sentinel.touch()
-
     @staticmethod
     def _move_path(src: Path, dst: Path) -> None:
         """Move a path to the destination"""
@@ -374,28 +428,43 @@ class MirrorManager:
 
     @staticmethod
     def _disable_gitignore_files(path: Path) -> None:
-        """Rename .gitignore → .gitignore.rplc-disabled in directory tree.
+        """Rename .gitignore → .gitignore.rplc-disabled.
+
+        For directories: recursively finds and renames all .gitignore files.
+        For standalone .gitignore files: renames the file directly.
 
         Prevents .gitignore files in mirror directories from affecting the
         parent project's git behavior when files are swapped out.
         """
-        if not path.is_dir():
-            return
-        for gitignore in path.rglob(".gitignore"):
-            disabled = gitignore.parent / f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"
-            gitignore.rename(disabled)
-            logger.debug(f"Disabled gitignore: {gitignore} → {disabled}")
+        if path.is_dir():
+            for gitignore in path.rglob(".gitignore"):
+                disabled = gitignore.parent / f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"
+                gitignore.rename(disabled)
+                logger.debug(f"Disabled gitignore: {gitignore} → {disabled}")
+        elif path.name == ".gitignore" and path.exists():
+            disabled = path.parent / f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"
+            path.rename(disabled)
+            logger.debug(f"Disabled gitignore: {path} → {disabled}")
 
     @staticmethod
     def _enable_gitignore_files(path: Path) -> None:
-        """Rename .gitignore.rplc-disabled → .gitignore in directory tree.
+        """Rename .gitignore.rplc-disabled → .gitignore.
+
+        For directories: recursively finds and restores all disabled .gitignore files.
+        For standalone .gitignore paths: checks if the disabled form exists and restores it.
 
         Restores .gitignore files when content is swapped back into the
         source project.
         """
-        if not path.is_dir():
-            return
-        for disabled in path.rglob(f".gitignore{MirrorManager.GITIGNORE_DISABLED_SUFFIX}"):
-            gitignore = disabled.parent / ".gitignore"
-            disabled.rename(gitignore)
-            logger.debug(f"Enabled gitignore: {disabled} → {gitignore}")
+        disabled_suffix = MirrorManager.GITIGNORE_DISABLED_SUFFIX
+        if path.is_dir():
+            for disabled in path.rglob(f".gitignore{disabled_suffix}"):
+                gitignore = disabled.parent / ".gitignore"
+                disabled.rename(gitignore)
+                logger.debug(f"Enabled gitignore: {disabled} → {gitignore}")
+        elif path.name == ".gitignore":
+            # The path passed is the expected .gitignore path; check if disabled form exists
+            disabled = path.parent / f".gitignore{disabled_suffix}"
+            if disabled.exists():
+                disabled.rename(path)
+                logger.debug(f"Enabled gitignore: {disabled} → {path}")

@@ -6,8 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="084c0317-2b36-4e4a-8494-56cab8660877" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/rplc/lib/mirror.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/rplc/lib/mirror.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -92,10 +90,19 @@
       <workItem from="1755423341451" duration="2443000" />
       <workItem from="1755503368086" duration="3199000" />
       <workItem from="1760013317465" duration="1599000" />
+      <workItem from="1766751435202" duration="1207000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="github-copilot-workspace">
+    <instructionFileLocations>
+      <option value=".github/instructions" />
+    </instructionFileLocations>
+    <promptFileLocations>
+      <option value=".github/prompts" />
+    </promptFileLocations>
   </component>
 </project>
