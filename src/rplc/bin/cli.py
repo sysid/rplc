@@ -16,7 +16,7 @@ from rplc.lib.discovery import discover_rplc_projects, get_swap_status_for_proje
 logger = logging.getLogger(__name__)
 console = Console()
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 app = typer.Typer(help="RPLC - Local Override Exchange for git projects")
 
