@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from rplc.lib.mirror import MirrorManager
+from rplc.lib.mirror import MirrorManager, _get_hostname
+
+
+def _sentinel_suffix() -> str:
+    """Get the sentinel suffix for the current host"""
+    return f".{_get_hostname()}.rplc_active"
 
 
 def test_mirror_manager_swap_out_with_changes(test_project: tuple[Path, Path], test_config_file: Path) -> None:
@@ -25,7 +30,7 @@ def test_mirror_manager_swap_out_with_changes(test_project: tuple[Path, Path], t
     manager.swap_in()
 
     # Verify sentinel was created with mirror content
-    sentinel_yml = (mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}").read_text()
+    sentinel_yml = (mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}").read_text()
     assert sentinel_yml == mirror_yml
 
     # Verify original was backed up
@@ -48,8 +53,8 @@ def test_mirror_manager_swap_out_with_changes(test_project: tuple[Path, Path], t
     assert (proj_dir / "scratchdir/note.txt").read_text() == orig_note
 
     # Verify sentinel was removed and no backups remain
-    assert not (mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}").exists()
-    assert not list(mirror_dir.rglob(f"*{manager.SENTINEL_SUFFIX}"))
+    assert not (mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}").exists()
+    assert not list(mirror_dir.rglob("*.rplc_active"))
     assert not list(mirror_dir.rglob(f"*{manager.ORIGINAL_SUFFIX}"))
 
 
@@ -83,7 +88,7 @@ def test_mirror_manager_initial_swap_out(test_project: tuple[Path, Path], test_c
     assert not (proj_dir / "scratchdir/note.txt").exists()
 
     # Verify no sentinel files were created
-    assert not list(mirror_dir.rglob(f"*{manager.SENTINEL_SUFFIX}"))
+    assert not list(mirror_dir.rglob("*.rplc_active"))
 
 
 def test_mirror_manager_sentinel_handling(test_project: tuple[Path, Path], test_config_file: Path) -> None:
@@ -102,7 +107,7 @@ def test_mirror_manager_sentinel_handling(test_project: tuple[Path, Path], test_
     manager.swap_in()
 
     # Check sentinel content matches original mirror content
-    sentinel_path = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    sentinel_path = mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}"
     assert sentinel_path.exists()
     assert sentinel_path.read_text() == mirror_yml
 
@@ -297,9 +302,9 @@ def test_swap_in_with_specific_files(test_project: tuple[Path, Path], test_confi
     manager.swap_in(files=["main/resources/application.yml"])
 
     # Check that only the specified file was swapped
-    yml_sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
-    java_sentinel = mirror_dir / f"main/src/class.java{manager.SENTINEL_SUFFIX}"
-    dir_sentinel = mirror_dir / f"scratchdir{manager.SENTINEL_SUFFIX}"
+    yml_sentinel = mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}"
+    java_sentinel = mirror_dir / f"main/src/class.java{_sentinel_suffix()}"
+    dir_sentinel = mirror_dir / f"scratchdir{_sentinel_suffix()}"
 
     assert yml_sentinel.exists()
     assert not java_sentinel.exists()
@@ -330,9 +335,9 @@ def test_swap_out_with_pattern(test_project: tuple[Path, Path], test_config_file
     manager.swap_out(pattern="*.yml")
 
     # Check that only YAML file was swapped out
-    yml_sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
-    java_sentinel = mirror_dir / f"main/src/class.java{manager.SENTINEL_SUFFIX}"
-    dir_sentinel = mirror_dir / f"scratchdir{manager.SENTINEL_SUFFIX}"
+    yml_sentinel = mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}"
+    java_sentinel = mirror_dir / f"main/src/class.java{_sentinel_suffix()}"
+    dir_sentinel = mirror_dir / f"scratchdir{_sentinel_suffix()}"
 
     assert not yml_sentinel.exists()  # Should be removed
     assert java_sentinel.exists()      # Should still exist
@@ -376,6 +381,58 @@ def test_swap_operations_are_idempotent(test_project: tuple[Path, Path], test_co
 
     # Should be identical and match initial state
     assert first_restore_yml == second_restore_yml == initial_yml
+
+
+def test_swap_in_already_swapped_shows_correct_message(test_project: tuple[Path, Path], test_config_file: Path, capsys) -> None:
+    """Test that swap_in shows 'Already swapped in' when files are already swapped on current host"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # First swap in
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    # Clear captured output
+    capsys.readouterr()
+
+    # Second swap in should show "Already swapped in"
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    captured = capsys.readouterr()
+    assert "Already swapped in" in captured.out
+    # Should NOT show the misleading "Mirror path does not exist" warning
+    assert "Mirror path does not exist" not in captured.out
+
+
+def test_swap_in_blocked_by_other_host(test_project: tuple[Path, Path], test_config_file: Path, capsys) -> None:
+    """Test that swap_in is blocked when files are swapped in on a different host"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Manually create a sentinel file from a "different host"
+    other_host = "otherhost"
+    fake_sentinel = mirror_dir / f"main/resources/application.yml.{other_host}.rplc_active"
+    fake_sentinel.parent.mkdir(parents=True, exist_ok=True)
+    fake_sentinel.write_text("fake sentinel content")
+
+    # Remove the mirror file to simulate swapped-in state
+    (mirror_dir / "main/resources/application.yml").unlink()
+
+    # Attempt to swap in should be blocked
+    manager.swap_in(files=["main/resources/application.yml"])
+
+    captured = capsys.readouterr()
+    # Output may have line breaks due to rich text wrapping, so normalize
+    output = ' '.join(captured.out.split())
+    assert f"swapped in on '{other_host}'" in output
+    assert "Swap out there first" in output
 
 
 def test_delete_when_swapped_out(test_project: tuple[Path, Path], test_config_file: Path) -> None:
@@ -423,7 +480,7 @@ def test_delete_fails_when_swapped_in(test_project: tuple[Path, Path], test_conf
     manager.swap_in(files=["main/resources/application.yml"])
 
     # Verify sentinel exists (this is the key indicator)
-    sentinel = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    sentinel = mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}"
     assert sentinel.exists()
 
     # When swapped in, mirror file has been moved to source, so backup should exist
@@ -605,7 +662,7 @@ def test_delete_partial_swap_fails(test_project: tuple[Path, Path], test_config_
     manager.swap_in(files=["main/resources/application.yml"])
 
     # Verify swap state: swapped file has sentinel, non-swapped has mirror
-    sentinel_yml = mirror_dir / f"main/resources/application.yml{manager.SENTINEL_SUFFIX}"
+    sentinel_yml = mirror_dir / f"main/resources/application.yml{_sentinel_suffix()}"
     assert sentinel_yml.exists()
     assert (mirror_dir / "main/src/class.java").exists()  # Not swapped, mirror exists
 

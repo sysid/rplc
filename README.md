@@ -15,6 +15,7 @@ All operations are atomic and idempotent.
 
 - **File/Directory Mirroring**: Swap between original and mirror versions of files and directories
 - **Configuration-Driven**: Define mirror mappings in Markdown configuration files
+- **Multi-Computer Awareness**: Sentinel files track which computer performed the swap, preventing conflicts
 - **Environment Variable Support**: Use environment variables in path configurations for flexible setups
 - **Environment Configuration**: Configure CLI options via environment variables
 - **Environment Integration**: Automatic `.envrc` management with swap state tracking
@@ -42,7 +43,7 @@ uv tool install -e .  # Install CLI globally
 
 ### 1. Create a Configuration File
 
-Create a configuration file (e.g., `rplc-config.md`):
+Create a configuration file (e.g., `rplc-config.md`). The format is **strict**:
 
 ```markdown
 # Development
@@ -51,38 +52,50 @@ Create a configuration file (e.g., `rplc-config.md`):
 main/resources/application.yml
 main/src/class.java
 scratchdir/
-$HOME/.config/app/local-settings.yml
-${PROJECT_ROOT}/temp/
-# Lines starting with # are ignored as comments
 ```
 
-### 2. Set up Mirror Directory Structure
+> **Required format**: The exact heading structure `# Development` → `## rplc-config` is mandatory. Only paths listed under this section are managed.
+> No other content must be written under this section!
+
+### 2. Configure Mirror Directory
+
+The mirror directory stores your alternative file versions. Configure it:
+
+```bash
+# Option 1: Environment variable (recommended)
+export RPLC_MIRROR_DIR="/path/to/mirror_proj"
+
+# Option 2: CLI flag
+rplc swapin --mirror-dir /path/to/mirror_proj
+```
+
+**Default**: `../mirror_proj` (sibling directory to your project)
+
+### 3. Set up Directory Structure
+
+Create matching directory structures in both locations:
 
 ```
-project/
-├── main/resources/application.yml    # Original files
-├── main/src/class.java
-└── scratchdir/
-    └── file.txt
-
-mirror_proj/
-├── main/resources/application.yml    # Mirror versions
-├── main/src/class.java
-└── scratchdir/
-    └── file.txt
+project/                              mirror_proj/
+├── main/resources/                   ├── main/resources/
+│   └── application.yml  (original)   │   └── application.yml  (custom)
+├── main/src/                         ├── main/src/
+│   └── class.java       (original)   │   └── class.java       (custom)
+└── scratchdir/                       └── scratchdir/
+    └── file.txt         (original)       └── file.txt         (custom)
 ```
 
-### 3. Swap in Mirror Versions
+### 4. Swap in Mirror Versions
 
 ```bash
 # Swap all configured files
 rplc swapin --config rplc-config.md
 
 # Or swap specific files only
-rplc swapin main/resources/application.yml main/src/class.java --config rplc-config.md
+rplc swapin main/resources/application.yml --config rplc-config.md
 ```
 
-### 4. Swap Back to Originals
+### 5. Swap Back to Originals
 
 ```bash
 # Swap out all files
@@ -292,7 +305,7 @@ rplc delete --pattern "main/**/*" --exclude "*.log"
 
 ### Configuration Format
 
-Configuration files use Markdown format with a specific structure. Only content under the `# Development` → `## rplc-config` section is processed:
+Configuration files **must** use this exact Markdown structure:
 
 ```markdown
 # Development
@@ -303,19 +316,21 @@ path/to/directory/
 another/file.yml
 $HOME/.config/app/settings.yml
 ${PROJECT_ROOT}/temp/cache/
-# This is a comment and will be ignored
 ```
 
-**Rules:**
+> **Strict format**: The headings `# Development` and `## rplc-config` are mandatory and case-sensitive. Only paths listed under `## rplc-config` are managed by rplc.
+
+**Path rules:**
 - Paths ending with `/` are treated as directories
 - Paths are relative to project root (unless using environment variables)
-- Code blocks are ignored
-- Only content under `# Development` → `## rplc-config` is processed
-- Environment variables are resolved using `$VAR` or `${VAR}` syntax
-    - Undefined environment variables are left as-is (no error thrown)
-    - Tilde (`~`) expands to user's home directory
-    - Variables can be combined: `~/${PROJECT}/config`
-    - Trailing `/` still indicates directories after expansion
+- Lines starting with `#` inside the rplc-config section are treated as comments
+- Code blocks within the markdown file are ignored
+
+**Environment variable support:**
+- Use `$VAR` or `${VAR}` syntax for environment variables
+- Tilde (`~`) expands to user's home directory
+- Undefined variables are left as-is (no error)
+- Example: `~/${PROJECT}/config/`
 
 
 ### Environment Integration
@@ -331,10 +346,11 @@ Disable with `--no-env` flag or `RPLC_NO_ENV=true` environment variable.
 
 ### Swap-In Process
 
-1. **Backup Original**: Moves original file to `mirror_dir/path.rplc.original`
-2. **Create Sentinel**: Copies mirror content to `mirror_dir/path.rplc_active`
-3. **Replace Original**: Moves mirror file to original location
-4. **Update Environment**: Sets `RPLC_SWAPPED=1` in `.envrc`
+1. **Check Swap State**: Verifies file isn't already swapped (on this or another computer)
+2. **Backup Original**: Moves original file to `mirror_dir/path.rplc.original`
+3. **Create Sentinel**: Copies mirror content to `mirror_dir/path.<hostname>.rplc_active`
+4. **Replace Original**: Moves mirror file to original location
+5. **Update Environment**: Sets `RPLC_SWAPPED=1` in `.envrc`
 
 ### Swap-Out Process
 
@@ -352,19 +368,26 @@ project/
 
 mirror_proj/
 ├── file.txt                          # Modified content after swap-out
-├── file.txt.rplc.original             # Backup of original content
-└── file.txt.rplc_active               # Sentinel marking active swap
+├── file.txt.rplc.original            # Backup of original content
+└── file.txt.myhost.rplc_active       # Sentinel with hostname (e.g., myhost)
 ```
 ### Swap State Tracking
 
 rplc tracks swap state through two mechanisms:
 
-#### 1. Sentinel Files (`.rplc_active`)
-- **Purpose**: Track which files are currently swapped in
-- **Location**: Mirror directory with `.rplc_active` suffix
+#### 1. Sentinel Files (`.<hostname>.rplc_active`)
+- **Purpose**: Track which files are currently swapped in and on which computer
+- **Location**: Mirror directory with `.<hostname>.rplc_active` suffix
 - **Content**: Copy of the original mirror content
-- **Check**: `sentinel.exists()` determines swap state
+- **Multi-Computer**: Includes hostname to prevent conflicts across machines
 - **Cleanup**: Removed during `swap_out`
+
+**Cross-Computer Protection:**
+- If you try to `swapin` a file already swapped on another computer, rplc will show an error:
+  ```
+  ✗ path/to/file is swapped in on 'otherhost'. Swap out there first.
+  ```
+- This prevents accidental overwrites when working with shared mirror directories
 
 #### 2. Environment Variable (`RPLC_SWAPPED`)
 - **Purpose**: Global state indicator in `.envrc`

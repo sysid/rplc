@@ -1,10 +1,10 @@
 # src/rplc/lib/mirror.py
+import fnmatch
 import logging
 import shutil
-import subprocess
-import fnmatch
+import socket
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from rich import print
 
@@ -13,9 +13,13 @@ from rplc.lib.config import MirrorConfig, ConfigParser
 logger = logging.getLogger(__name__)
 
 
+def _get_hostname() -> str:
+    """Get short hostname for sentinel naming"""
+    return socket.gethostname().split('.')[0].lower()
+
+
 class MirrorManager:
     """Manage mirroring of files and directories"""
-    SENTINEL_SUFFIX = ".rplc_active"
     ORIGINAL_SUFFIX = ".rplc.original"
     MIRROR_BKP_SUFFIX = ".rplc_active.backup"
     ENVRC_FILE = ".envrc"
@@ -131,19 +135,31 @@ class MirrorManager:
         if configs:
             self._update_envrc(set_var=True)
 
+        current_host = _get_hostname()
+
         for config in configs:
-            # Get actual physical path in mirror (accounting for neutralized .gitignore)
+            try:
+                rel_path = config.source_path.relative_to(self.proj_dir)
+            except ValueError:
+                rel_path = config.source_path
+
+            # 1. Check if already swapped in (any host) - MUST check before mirror path
+            existing_sentinel, sentinel_host = self._find_any_sentinel(config)
+            if existing_sentinel:
+                if sentinel_host == current_host:
+                    print(f"[yellow]Already swapped in: {rel_path}[/yellow]")
+                else:
+                    print(f"[red]✗ {rel_path} is swapped in on '{sentinel_host}'. Swap out there first.[/red]")
+                continue
+
+            # 2. Now check if mirror path exists
             physical_path = self._get_mirror_physical_path(config)
             if physical_path is None:
                 print(f"[yellow]Warning: Mirror path does not exist: {config.mirror_path}[/yellow]")
                 continue
 
+            # 3. Create sentinel and proceed with swap
             sentinel = self._get_sentinel_path(config)
-            if sentinel.exists():
-                print(f"[yellow]Already swapped in: {config.source_path}[/yellow]")
-                continue
-
-            # Create sentinel file first to mark the start of the operation
             self._copy_path(physical_path, sentinel)
 
             # Backup original if it exists to .rplc.original
@@ -157,7 +173,7 @@ class MirrorManager:
             if config.is_directory:
                 self._enable_gitignore_files(config.source_path)
 
-            print(f"[green]Swapped in: {config.source_path}[/green]")
+            print(f"[green]Swapped in: {rel_path}[/green]")
 
     def swap_out(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
         """
@@ -172,11 +188,17 @@ class MirrorManager:
             self._update_envrc(set_var=False)
 
         for config in configs:
-            sentinel = self._get_sentinel_path(config)
+            try:
+                rel_path = config.source_path.relative_to(self.proj_dir)
+            except ValueError:
+                rel_path = config.source_path
+
+            # Find any existing sentinel (from any host)
+            existing_sentinel, sentinel_host = self._find_any_sentinel(config)
             backup_path = self._get_backup_path(config)
 
             # If no sentinel exists, this path hasn't been swapped in
-            if not sentinel.exists():
+            if not existing_sentinel:
                 # Special case: Initialize mirror directory if target doesn't exist
                 if self._get_mirror_physical_path(config) is None and config.source_path.exists():
                     logger.debug(f"Initializing mirror for: {config.source_path}")
@@ -184,7 +206,7 @@ class MirrorManager:
                     self._disable_gitignore_files(config.mirror_path)
                     print(f"[green]Initialized mirror: {config.mirror_path}[/green]")
                 else:
-                    print(f"[yellow]Already swapped out: {config.source_path}[/yellow]")
+                    print(f"[yellow]Already swapped out: {rel_path}[/yellow]")
                 continue
 
             # Store modified content in mirror
@@ -196,15 +218,15 @@ class MirrorManager:
             if backup_path.exists():
                 self._move_path(backup_path, config.source_path)
             else:
-                print(f"[yellow]Warning: No backup found for {config.source_path}[/yellow]")
+                print(f"[yellow]Warning: No backup (original) found for {rel_path}[/yellow] to bring back.")
 
             # Remove sentinel file/directory
-            if sentinel.is_dir():
-                shutil.rmtree(sentinel)
+            if existing_sentinel.is_dir():
+                shutil.rmtree(existing_sentinel)
             else:
-                sentinel.unlink()
+                existing_sentinel.unlink()
 
-            print(f"[green]Swapped out: {config.source_path}[/green]")
+            print(f"[green]Swapped out: {rel_path}[/green]")
 
     def delete(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
         """
@@ -234,20 +256,24 @@ class MirrorManager:
         # where the user might lose data. If any sentinel file exists, that means
         # the file is currently swapped in and we abort the operation.
 
-        swapped_in_files = []
+        swapped_in_files: List[Tuple[Path, str]] = []
         for config in configs:
-            sentinel = self._get_sentinel_path(config)
-            if sentinel.exists():
-                swapped_in_files.append(config.source_path)
+            existing_sentinel, sentinel_host = self._find_any_sentinel(config)
+            if existing_sentinel:
+                swapped_in_files.append((config.source_path, sentinel_host or "unknown"))
 
         if swapped_in_files:
             print("[red]✗ Error: Cannot delete - the following files are currently swapped in:[/red]")
-            for path in swapped_in_files:
+            current_host = _get_hostname()
+            for path, host in swapped_in_files:
                 try:
                     rel_path = path.relative_to(self.proj_dir)
                 except ValueError:
                     rel_path = path
-                print(f"  [red]• {rel_path}[/red]")
+                if host == current_host:
+                    print(f"  [red]• {rel_path}[/red]")
+                else:
+                    print(f"  [red]• {rel_path} (on '{host}')[/red]")
             print("[yellow]Run 'rplc swapout' first to restore original state[/yellow]")
             raise SystemExit(1)
 
@@ -381,9 +407,33 @@ class MirrorManager:
         return backup_path.resolve()
 
     def _get_sentinel_path(self, config: MirrorConfig) -> Path:
-        """Get sentinel file path for a config"""
+        """Get sentinel file path for a config (includes hostname)"""
+        hostname = _get_hostname()
         rel_path = config.source_path.relative_to(self.proj_dir)
-        return (self.mirror_dir / f"{rel_path}{self.SENTINEL_SUFFIX}").resolve()
+        return (self.mirror_dir / f"{rel_path}.{hostname}.rplc_active").resolve()
+
+    def _find_any_sentinel(self, config: MirrorConfig) -> Tuple[Optional[Path], Optional[str]]:
+        """Find sentinel for any host.
+
+        Returns (sentinel_path, hostname) if a sentinel exists for any host,
+        or (None, None) if no sentinel exists.
+        """
+        rel_path = config.source_path.relative_to(self.proj_dir)
+        # Sentinel path: mirror_dir/rel_path.hostname.rplc_active
+        # For nested paths like "src/main.py", sentinel is at "mirror_dir/src/main.py.hostname.rplc_active"
+        sentinel_dir = (self.mirror_dir / rel_path).parent
+        base_name = rel_path.name
+
+        if not sentinel_dir.exists():
+            return None, None
+
+        # Pattern: {filename}.{hostname}.rplc_active
+        for sentinel in sentinel_dir.glob(f"{base_name}.*.rplc_active"):
+            # Extract hostname from: {name}.{hostname}.rplc_active
+            parts = sentinel.name.rsplit('.', 2)
+            if len(parts) >= 3 and parts[-1] == "rplc_active":
+                return sentinel, parts[-2]
+        return None, None
 
     @staticmethod
     def _move_path(src: Path, dst: Path) -> None:
