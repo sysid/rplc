@@ -4,12 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from rplc.lib.mirror import MirrorManager, _get_hostname
+from rplc.lib.mirror import MirrorManager
+from rplc.lib.domain import get_hostname
 
 
 def _sentinel_suffix() -> str:
     """Get the sentinel suffix for the current host"""
-    return f".{_get_hostname()}.rplc_active"
+    return f".{get_hostname()}.rplc_active"
 
 
 def test_mirror_manager_swap_out_with_changes(test_project: tuple[Path, Path], test_config_file: Path) -> None:

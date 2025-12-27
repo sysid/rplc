@@ -303,6 +303,62 @@ rplc delete --pattern "main/**/*" --exclude "*.log"
 # Run 'rplc swapout' first to restore original state
 ```
 
+#### `swapout-all`
+Swap out all resources across multiple projects under a base directory.
+
+```bash
+rplc swapout-all BASE_DIR [OPTIONS]
+```
+
+This command discovers all rplc projects by scanning for `.envrc` files containing `RPLC_MIRROR_DIR`, then swaps out any resources that are swapped in on the current host.
+
+**Arguments:**
+- `BASE_DIR`: Base directory to search for rplc projects
+
+**Options:**
+- `--dry-run, -n`: Show what would be done without making changes
+
+**Project Discovery:**
+- Scans recursively for `.envrc` files under the base directory
+- Extracts `RPLC_MIRROR_DIR` and `RPLC_CONFIG` (defaults to `sample.md`)
+- Only processes projects where the config file exists
+
+**Behavior:**
+- Swaps out resources that are swapped in on the **current host**
+- Warns about resources swapped in on **other hosts** (doesn't fail)
+- Reports summary statistics
+
+**Examples:**
+```bash
+# Swap out all resources under ~/dev
+rplc swapout-all ~/dev
+
+# Preview what would be swapped out
+rplc swapout-all ~/dev --dry-run
+
+# Clean up before switching machines
+rplc swapout-all ~/projects
+```
+
+**Example Output:**
+```
+Scanning for rplc projects under ~/dev...
+Found 2 rplc project(s).
+
+myproject:
+  ✓ Swapped out: main/resources/application.yml
+  ⚠ Other host 'desktop': main/src/Class.java
+  - Already out: config/db.yml
+
+otherproject:
+  ✓ Swapped out: config/settings.yml
+
+Summary:
+  2 swapped out
+  1 on other host (skipped)
+  2 projects processed
+```
+
 ### Configuration Format
 
 Configuration files **must** use this exact Markdown structure:
@@ -470,6 +526,8 @@ src/rplc/
 └── lib/
     ├── __init__.py
     ├── config.py           # Configuration parsing
+    ├── discovery.py        # Project discovery via .envrc
+    ├── domain.py           # Domain model (Project, SwapState)
     └── mirror.py           # Core mirroring logic
 
 tests/
@@ -477,6 +535,7 @@ tests/
 │   └── test_cli.py         # CLI tests
 ├── lib/
 │   ├── test_config.py      # Configuration tests
+│   ├── test_discovery.py   # Discovery tests
 │   └── test_mirror.py      # Core logic tests
 └── conftest.py             # Test fixtures
 ```

@@ -469,3 +469,228 @@ def test_detect_project_directory_with_rplc_marker(monkeypatch, tmp_path) -> Non
     # Should succeed
     result = detect_project_directory()
     assert result == proj
+
+
+# =============================================================================
+# Tests for swapout-all command
+# =============================================================================
+
+
+def test_swapout_all_no_projects(tmp_path: Path) -> None:
+    """Test swapout-all with no rplc projects found"""
+    runner = CliRunner()
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = runner.invoke(app, ["swapout-all", str(empty_dir)])
+
+    assert result.exit_code == 0
+    assert "No rplc projects found" in result.output
+
+
+def test_swapout_all_nonexistent_directory(tmp_path: Path) -> None:
+    """Test swapout-all with non-existent base directory"""
+    runner = CliRunner()
+    nonexistent = tmp_path / "does_not_exist"
+
+    result = runner.invoke(app, ["swapout-all", str(nonexistent)])
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_swapout_all_single_project_all_swapped_out(tmp_path: Path) -> None:
+    """Test swapout-all when all files are already swapped out"""
+    runner = CliRunner()
+
+    # Create project structure
+    proj_dir = tmp_path / "myproject"
+    proj_dir.mkdir()
+    mirror_dir = tmp_path / "mirror"
+    mirror_dir.mkdir()
+
+    # Create .envrc with RPLC_MIRROR_DIR
+    (proj_dir / ".envrc").write_text(f"export RPLC_MIRROR_DIR={mirror_dir}\n")
+
+    # Create config file
+    (proj_dir / "sample.md").write_text("# Development\n## rplc-config\ntest.txt\n")
+
+    # Create mirror file (no sentinel = swapped out)
+    (mirror_dir / "test.txt").write_text("mirror content")
+
+    result = runner.invoke(app, ["swapout-all", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "already swapped out" in result.output
+
+
+def test_swapout_all_swaps_out_this_host(
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Test swapout-all swaps out files that are swapped in on current host"""
+    from rplc.lib.mirror import MirrorManager
+    from rplc.lib.domain import get_hostname
+
+    runner = CliRunner()
+    proj_dir, mirror_dir = test_project
+
+    # Create .envrc pointing to mirror
+    (proj_dir / ".envrc").write_text(f"export RPLC_MIRROR_DIR={mirror_dir}\n")
+
+    # Copy config to project dir
+    (proj_dir / "sample.md").write_text(test_config_file.read_text())
+
+    # Swap in files first
+    monkeypatch.chdir(proj_dir)
+    manager = MirrorManager(
+        proj_dir / "sample.md",
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir,
+        manage_env=False,
+    )
+    manager.swap_in()
+
+    # Verify files are swapped in
+    hostname = get_hostname()
+    sentinel = mirror_dir / f"main/resources/application.yml.{hostname}.rplc_active"
+    assert sentinel.exists()
+
+    # Now run swapout-all
+    result = runner.invoke(app, ["swapout-all", str(tmp_path / "test_root")])
+
+    print("Output:", result.output)
+    assert result.exit_code == 0
+    assert "Swapped out" in result.output
+
+    # Verify sentinel is gone
+    assert not sentinel.exists()
+
+
+def test_swapout_all_warns_about_other_host(
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path
+) -> None:
+    """Test swapout-all warns about files swapped in on other hosts"""
+    runner = CliRunner()
+    proj_dir, mirror_dir = test_project
+
+    # Create .envrc pointing to mirror
+    (proj_dir / ".envrc").write_text(f"export RPLC_MIRROR_DIR={mirror_dir}\n")
+
+    # Copy config to project dir
+    (proj_dir / "sample.md").write_text(test_config_file.read_text())
+
+    # Create sentinel for different host
+    other_host = "otherhost"
+    sentinel = mirror_dir / f"main/resources/application.yml.{other_host}.rplc_active"
+    sentinel.write_text("sentinel content")
+
+    # Run swapout-all
+    result = runner.invoke(app, ["swapout-all", str(tmp_path / "test_root")])
+
+    print("Output:", result.output)
+    assert result.exit_code == 0
+    assert f"Other host '{other_host}'" in result.output
+    assert "on other host" in result.output
+
+    # Verify sentinel still exists (wasn't touched)
+    assert sentinel.exists()
+
+
+def test_swapout_all_dry_run(
+    test_project: tuple[Path, Path], test_config_file: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Test swapout-all dry-run doesn't actually swap out"""
+    from rplc.lib.mirror import MirrorManager
+    from rplc.lib.domain import get_hostname
+
+    runner = CliRunner()
+    proj_dir, mirror_dir = test_project
+
+    # Create .envrc pointing to mirror
+    (proj_dir / ".envrc").write_text(f"export RPLC_MIRROR_DIR={mirror_dir}\n")
+
+    # Copy config to project dir
+    (proj_dir / "sample.md").write_text(test_config_file.read_text())
+
+    # Swap in files first
+    monkeypatch.chdir(proj_dir)
+    manager = MirrorManager(
+        proj_dir / "sample.md",
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir,
+        manage_env=False,
+    )
+    manager.swap_in()
+
+    # Verify files are swapped in
+    hostname = get_hostname()
+    sentinel = mirror_dir / f"main/resources/application.yml.{hostname}.rplc_active"
+    assert sentinel.exists()
+
+    # Run swapout-all with dry-run
+    result = runner.invoke(app, ["swapout-all", "--dry-run", str(tmp_path / "test_root")])
+
+    print("Output:", result.output)
+    assert result.exit_code == 0
+    assert "Would swap out" in result.output
+    assert "Dry run" in result.output
+
+    # Verify sentinel still exists (dry-run didn't touch it)
+    assert sentinel.exists()
+
+
+def test_swapout_all_multiple_projects(tmp_path: Path) -> None:
+    """Test swapout-all discovers and processes multiple projects"""
+    from rplc.lib.mirror import MirrorManager
+    from rplc.lib.domain import get_hostname
+
+    runner = CliRunner()
+    hostname = get_hostname()
+
+    # Create shared mirror
+    mirror_dir = tmp_path / "shared_mirror"
+    mirror_dir.mkdir()
+
+    # Create two projects
+    for name in ["proj1", "proj2"]:
+        proj_dir = tmp_path / name
+        proj_dir.mkdir()
+
+        # Create .envrc
+        (proj_dir / ".envrc").write_text(f"export RPLC_MIRROR_DIR={mirror_dir}\n")
+
+        # Create config
+        (proj_dir / "sample.md").write_text(
+            f"# Development\n## rplc-config\n{name}_file.txt\n"
+        )
+
+        # Create mirror files
+        (mirror_dir / f"{name}_file.txt").write_text(f"mirror content for {name}")
+
+        # Create sentinel (swapped in)
+        sentinel = mirror_dir / f"{name}_file.txt.{hostname}.rplc_active"
+        sentinel.write_text("sentinel")
+
+        # Create source file
+        (proj_dir / f"{name}_file.txt").write_text(f"swapped in content for {name}")
+
+        # Create backup
+        backup = mirror_dir / f"{name}_file.txt.rplc.original"
+        backup.write_text(f"original content for {name}")
+
+    # Run swapout-all
+    result = runner.invoke(app, ["swapout-all", str(tmp_path)])
+
+    print("Output:", result.output)
+    assert result.exit_code == 0
+    assert "Found 2 rplc project(s)" in result.output or "2 project(s) processed" in result.output
+
+
+def test_swapout_all_help() -> None:
+    """Test swapout-all --help shows correct info"""
+    runner = CliRunner()
+    result = runner.invoke(app, ["swapout-all", "--help"])
+
+    assert result.exit_code == 0
+    assert "Swap out all resources" in result.output
+    assert "dry-run" in result.output

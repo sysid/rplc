@@ -10,6 +10,8 @@ from rich.table import Table
 from rich.panel import Panel
 
 from rplc.lib.mirror import MirrorManager
+from rplc.lib.domain import get_hostname
+from rplc.lib.discovery import discover_rplc_projects, get_swap_status_for_project, SwapStatus
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -488,6 +490,127 @@ def delete(
         manage_env=not no_env,
     )
     manager.delete(files=files, pattern=pattern, exclude=exclude)
+
+
+@app.command("swapout-all")
+def swapout_all(
+    base: Annotated[
+        Path,
+        typer.Argument(help="Base directory to search for rplc projects"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would be done without doing it"),
+    ] = False,
+) -> None:
+    """
+    Swap out all resources across all rplc projects under a directory.
+
+    Discovers rplc projects by scanning for .envrc files containing RPLC_MIRROR_DIR.
+    For each project, swaps out resources that are swapped in on the current host.
+    Warns about resources swapped in on other hosts.
+    """
+    base = base.resolve()
+
+    if not base.exists():
+        console.print(f"[red]✗ Error: Base directory does not exist: {base}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[cyan]Scanning for rplc projects under {base}...[/cyan]")
+    console.print()
+
+    projects = discover_rplc_projects(base)
+
+    if not projects:
+        console.print("[yellow]No rplc projects found.[/yellow]")
+        console.print("[dim]Projects must have .envrc with RPLC_MIRROR_DIR set.[/dim]")
+        return
+
+    console.print(f"Found [bold]{len(projects)}[/bold] rplc project(s).")
+    console.print()
+
+    current_host = get_hostname()
+
+    # Statistics
+    total_swapped_out = 0
+    total_other_host = 0
+    total_already_out = 0
+    projects_processed = 0
+
+    for project in projects:
+        # Get relative path for display
+        try:
+            proj_display = project.proj_dir.relative_to(base)
+        except ValueError:
+            proj_display = project.proj_dir
+
+        # Get swap status for all entries
+        entries = get_swap_status_for_project(
+            project.proj_dir,
+            project.mirror_dir,
+            project.config_file,
+            current_host,
+        )
+
+        if not entries:
+            console.print(f"[dim]{proj_display}: no entries or failed to load config[/dim]")
+            continue
+
+        # Check if any work to do
+        this_host_entries = [e for e in entries if e.status == SwapStatus.SWAPPED_IN_THIS_HOST]
+        other_host_entries = [e for e in entries if e.status == SwapStatus.SWAPPED_IN_OTHER_HOST]
+        out_entries = [e for e in entries if e.status == SwapStatus.SWAPPED_OUT]
+
+        if not this_host_entries and not other_host_entries:
+            console.print(f"[dim]{proj_display}: all {len(out_entries)} entries already swapped out[/dim]")
+            total_already_out += len(out_entries)
+            continue
+
+        console.print(f"[bold]{proj_display}[/bold]:")
+
+        # Warn about other host entries
+        for entry in other_host_entries:
+            console.print(f"  [yellow]⚠ Other host '{entry.hostname}': {entry.rel_path}[/yellow]")
+            total_other_host += 1
+
+        # Swap out this-host entries
+        if this_host_entries:
+            if dry_run:
+                for entry in this_host_entries:
+                    console.print(f"  [cyan]Would swap out: {entry.rel_path}[/cyan]")
+                total_swapped_out += len(this_host_entries)
+            else:
+                # Actually perform the swap-out
+                try:
+                    manager = MirrorManager(
+                        project.config_file,
+                        proj_dir=project.proj_dir,
+                        mirror_dir=project.mirror_dir,
+                        manage_env=True,
+                    )
+                    # Get the file paths to swap out
+                    files_to_swap = [entry.rel_path for entry in this_host_entries]
+                    manager.swap_out(files=files_to_swap)
+                    total_swapped_out += len(this_host_entries)
+                except Exception as e:
+                    console.print(f"  [red]✗ Error swapping out: {e}[/red]")
+
+        # Note already-out entries
+        if out_entries:
+            console.print(f"  [dim]Already out: {len(out_entries)} entries[/dim]")
+            total_already_out += len(out_entries)
+
+        projects_processed += 1
+
+    # Summary
+    console.print()
+    if dry_run:
+        console.print("[cyan]Dry run - no changes made[/cyan]")
+    console.print("[bold]Summary:[/bold]")
+    console.print(f"  {total_swapped_out} resource(s) swapped out")
+    console.print(f"  {total_other_host} resource(s) on other host (skipped)")
+    console.print(f"  {total_already_out} resource(s) already swapped out")
+    console.print(f"  {projects_processed} project(s) processed")
 
 
 @app.callback(invoke_without_command=True)

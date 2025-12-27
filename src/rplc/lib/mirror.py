@@ -2,20 +2,16 @@
 import fnmatch
 import logging
 import shutil
-import socket
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from rich import print
 
 from rplc.lib.config import MirrorConfig, ConfigParser
+from rplc.lib.domain import get_hostname
 
 logger = logging.getLogger(__name__)
 
-
-def _get_hostname() -> str:
-    """Get short hostname for sentinel naming"""
-    return socket.gethostname().split('.')[0].lower()
 
 
 class MirrorManager:
@@ -135,7 +131,7 @@ class MirrorManager:
         if configs:
             self._update_envrc(set_var=True)
 
-        current_host = _get_hostname()
+        current_host = get_hostname()
 
         for config in configs:
             try:
@@ -264,7 +260,7 @@ class MirrorManager:
 
         if swapped_in_files:
             print("[red]✗ Error: Cannot delete - the following files are currently swapped in:[/red]")
-            current_host = _get_hostname()
+            current_host = get_hostname()
             for path, host in swapped_in_files:
                 try:
                     rel_path = path.relative_to(self.proj_dir)
@@ -408,7 +404,7 @@ class MirrorManager:
 
     def _get_sentinel_path(self, config: MirrorConfig) -> Path:
         """Get sentinel file path for a config (includes hostname)"""
-        hostname = _get_hostname()
+        hostname = get_hostname()
         rel_path = config.source_path.relative_to(self.proj_dir)
         return (self.mirror_dir / f"{rel_path}.{hostname}.rplc_active").resolve()
 
