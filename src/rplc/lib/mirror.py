@@ -224,6 +224,19 @@ class MirrorManager:
 
             print(f"[green]Swapped out: {rel_path}[/green]")
 
+        # Report orphaned artifacts (only when no filters applied, i.e. no partial swapout)
+        if not any([files, pattern, exclude]):
+            orphaned_sentinels, orphaned_backups = self.find_orphaned_artifacts()
+            if orphaned_sentinels or orphaned_backups:
+                print()
+                print("[yellow]Warning: Found orphaned rplc artifacts:[/yellow]")
+                for sentinel in orphaned_sentinels:
+                    print(f"  [dim]Sentinel: {sentinel}[/dim]")
+                for backup in orphaned_backups:
+                    print(f"  [dim]Backup: {backup}[/dim]")
+                print("[dim]These may be from removed/renamed config entries.[/dim]")
+                print("[dim]Delete manually if not needed.[/dim]")
+
     def delete(self, files: Optional[List[str]] = None, pattern: Optional[str] = None, exclude: Optional[List[str]] = None) -> None:
         """
         Remove paths from rplc management - only works when swapped out.
@@ -407,6 +420,20 @@ class MirrorManager:
         hostname = get_hostname()
         rel_path = config.source_path.relative_to(self.proj_dir)
         return (self.mirror_dir / f"{rel_path}.{hostname}.rplc_active").resolve()
+
+    def find_orphaned_artifacts(self) -> Tuple[List[Path], List[Path]]:
+        """Find orphaned sentinel and backup files in mirror directory.
+
+        After a full swap-out, no sentinel or backup files should remain.
+        Any file with these suffixes is orphaned by definition.
+
+        Returns:
+            Tuple of (orphaned_sentinels, orphaned_backups)
+        """
+        orphaned_sentinels = list(self.mirror_dir.rglob("*.rplc_active"))
+        orphaned_backups = list(self.mirror_dir.rglob(f"*{self.ORIGINAL_SUFFIX}"))
+
+        return orphaned_sentinels, orphaned_backups
 
     def _find_any_sentinel(self, config: MirrorConfig) -> Tuple[Optional[Path], Optional[str]]:
         """Find sentinel for any host.

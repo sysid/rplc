@@ -814,3 +814,133 @@ def test_swap_in_rejects_bare_gitignore(test_project: tuple[Path, Path], test_co
         manager2.swap_in(files=["config/.gitignore"])
     assert exc_info.value.code == 1
     assert (mirror_dir / "config/.gitignore").exists()  # unchanged
+
+
+# ==============================================================================
+# Orphaned artifact detection tests
+# ==============================================================================
+
+
+def test_find_orphaned_artifacts_finds_sentinel(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that find_orphaned_artifacts detects any sentinel file"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Create sentinel file (any sentinel after swap-out is orphaned)
+    orphan_dir = mirror_dir / "some/path"
+    orphan_dir.mkdir(parents=True)
+    sentinel = mirror_dir / "some/path/file.txt.somehost.rplc_active"
+    sentinel.write_text("sentinel content")
+
+    # Find orphaned artifacts
+    orphaned_sentinels, orphaned_backups = manager.find_orphaned_artifacts()
+
+    # Should find the sentinel
+    assert len(orphaned_sentinels) == 1
+    assert sentinel in orphaned_sentinels
+    assert len(orphaned_backups) == 0
+
+
+def test_find_orphaned_artifacts_finds_backup(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that find_orphaned_artifacts detects any backup file"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Create orphaned backup (path not in config)
+    orphan_dir = mirror_dir / "orphaned/path"
+    orphan_dir.mkdir(parents=True)
+    orphan_backup = mirror_dir / "orphaned/path/file.txt.rplc.original"
+    orphan_backup.write_text("orphan backup content")
+
+    # Find orphaned artifacts
+    orphaned_sentinels, orphaned_backups = manager.find_orphaned_artifacts()
+
+    # Should find the orphan backup
+    assert len(orphaned_backups) == 1
+    assert orphan_backup in orphaned_backups
+    assert len(orphaned_sentinels) == 0
+
+
+def test_orphaned_artifacts_reported_on_swapout(test_project: tuple[Path, Path], test_config_file: Path, capsys) -> None:
+    """Test that swap_out reports orphaned artifacts when no filters applied"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Create orphaned sentinel
+    orphan_dir = mirror_dir / "orphaned"
+    orphan_dir.mkdir(parents=True)
+    orphan_sentinel = orphan_dir / "file.txt.somehost.rplc_active"
+    orphan_sentinel.write_text("orphan")
+
+    # Swap in then swap out (full, no filters)
+    manager.swap_in()
+    manager.swap_out()
+
+    # Should report the orphan
+    captured = capsys.readouterr()
+    assert "orphan" in captured.out.lower() or "Orphaned" in captured.out
+    assert "file.txt" in captured.out
+
+    # Orphan should still exist (not auto-deleted)
+    assert orphan_sentinel.exists()
+
+
+def test_orphaned_report_skipped_with_pattern(test_project: tuple[Path, Path], test_config_file: Path, capsys) -> None:
+    """Test that pattern-based swap_out does NOT report orphans"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Create orphaned sentinel
+    orphan_dir = mirror_dir / "orphaned"
+    orphan_dir.mkdir(parents=True)
+    orphan_sentinel = orphan_dir / "file.txt.somehost.rplc_active"
+    orphan_sentinel.write_text("orphan")
+
+    # Swap in all, then swap out with pattern
+    manager.swap_in()
+    capsys.readouterr()  # Clear output
+
+    manager.swap_out(pattern="*.yml")
+
+    # Should NOT report orphans (intentional partial swapout)
+    captured = capsys.readouterr()
+    assert "orphan" not in captured.out.lower()
+
+
+def test_orphaned_sentinel_from_other_host_detected(test_project: tuple[Path, Path], test_config_file: Path) -> None:
+    """Test that orphaned sentinels from other hosts are also detected"""
+    proj_dir, mirror_dir = test_project
+    manager = MirrorManager(
+        config_file=test_config_file,
+        proj_dir=proj_dir,
+        mirror_dir=mirror_dir
+    )
+
+    # Create orphaned sentinel from a different host
+    orphan_dir = mirror_dir / "orphaned"
+    orphan_dir.mkdir(parents=True)
+    orphan_sentinel = orphan_dir / "file.txt.otherhost.rplc_active"
+    orphan_sentinel.write_text("orphan from other host")
+
+    # Find orphaned artifacts
+    orphaned_sentinels, _ = manager.find_orphaned_artifacts()
+
+    # Should detect it regardless of hostname
+    assert len(orphaned_sentinels) == 1
+    assert orphan_sentinel in orphaned_sentinels
