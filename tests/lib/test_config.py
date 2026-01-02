@@ -312,3 +312,131 @@ prod/config.yml
     assert configs[1].source_path == Path("docker/compose.yml")
     assert configs[2].source_path == Path("scripts")
     assert configs[2].is_directory
+
+
+# =============================================================================
+# Tests for add_config_entry
+# =============================================================================
+
+
+def test_add_config_entry_addsNewEntry(tmp_path: Path) -> None:
+    """Test adding a new entry to rplc-config section"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+existing/file.txt
+another/file.yml
+""")
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is True
+    content = config_file.read_text()
+    assert ".workmux.yaml" in content
+    # Verify it comes after existing entries
+    assert content.index("another/file.yml") < content.index(".workmux.yaml")
+
+
+def test_add_config_entry_whenAlreadyExists_returnsFalse(tmp_path: Path) -> None:
+    """Test that duplicate entries are not added"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+existing/file.txt
+.workmux.yaml
+another/file.yml
+""")
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is False
+    content = config_file.read_text()
+    # Ensure only one occurrence
+    assert content.count(".workmux.yaml") == 1
+
+
+def test_add_config_entry_whenNoRplcConfigSection_returnsFalse(tmp_path: Path) -> None:
+    """Test that entry is not added when no rplc-config section exists"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## Some Other Section
+content here
+""")
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is False
+    content = config_file.read_text()
+    assert ".workmux.yaml" not in content
+
+
+def test_add_config_entry_whenFileNotExists_returnsFalse(tmp_path: Path) -> None:
+    """Test that non-existent file returns False"""
+    config_file = tmp_path / "nonexistent.md"
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is False
+
+
+def test_add_config_entry_beforeNextSection(tmp_path: Path) -> None:
+    """Test that entry is added before the next section heading"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+existing/file.txt
+
+## Other Section
+Some content here
+""")
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is True
+    content = config_file.read_text()
+    assert ".workmux.yaml" in content
+    # Entry should come before "## Other Section"
+    assert content.index(".workmux.yaml") < content.index("## Other Section")
+
+
+def test_add_config_entry_normalizesTrailingSlash(tmp_path: Path) -> None:
+    """Test that trailing slashes are normalized for duplicate detection"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+scratchdir/
+""")
+
+    # Try to add same entry without trailing slash
+    result = ConfigParser.add_config_entry(config_file, "scratchdir")
+
+    assert result is False  # Should detect as duplicate
+
+
+def test_add_config_entry_noBlankLinesInserted(tmp_path: Path) -> None:
+    """Test that entry is added directly after last content, no blank lines"""
+    config_file = tmp_path / "test.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+CLAUDE.md
+.claude/
+
+## TODO
+Some todo items
+""")
+
+    result = ConfigParser.add_config_entry(config_file, ".workmux.yaml")
+
+    assert result is True
+    content = config_file.read_text()
+    # Verify entry is directly after .claude/ with no blank lines between
+    lines = content.splitlines()
+    claude_idx = next(i for i, line in enumerate(lines) if ".claude/" in line)
+    workmux_idx = next(i for i, line in enumerate(lines) if ".workmux.yaml" in line)
+    assert workmux_idx == claude_idx + 1  # Directly after, no blank lines
