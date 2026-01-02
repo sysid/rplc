@@ -694,3 +694,337 @@ def test_swapout_all_help() -> None:
     assert result.exit_code == 0
     assert "Swap out all resources" in result.output
     assert "dry-run" in result.output
+
+
+# =============================================================================
+# Tests for workmux command
+# =============================================================================
+
+
+def test_workmux_requires_swapped_in(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
+) -> None:
+    """Test workmux command fails when not swapped-in"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    monkeypatch.chdir(proj_dir)
+
+    result = runner.invoke(
+        app,
+        [
+            "workmux",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "must be swapped-in first" in result.output
+
+
+def test_workmux_generates_config(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
+) -> None:
+    """Test workmux generates .workmux.yaml with correct content"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    monkeypatch.chdir(proj_dir)
+
+    # First swap in
+    result = runner.invoke(
+        app,
+        [
+            "swapin",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+    assert result.exit_code == 0
+
+    # Now run workmux
+    result = runner.invoke(
+        app,
+        [
+            "workmux",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Created" in result.output
+
+    # Verify file was created with correct content
+    workmux_file = proj_dir / ".workmux.yaml"
+    assert workmux_file.exists()
+
+    content = workmux_file.read_text()
+    assert "post_create:" in content
+    # Note: ln -s command only added if .envrc is a symlink (tested separately)
+    assert "direnv allow" in content
+    assert "files:" in content
+    assert "symlink:" in content
+    # Check managed files are listed
+    assert "main/resources/application.yml" in content
+    assert "main/src/class.java" in content
+    assert "scratchdir/" in content  # Directory should have trailing slash
+    assert ".workmux.yaml" in content  # Self-reference for workmux symlink
+
+
+def test_workmux_adds_to_rplc_config(
+    test_project: tuple[Path, Path], tmp_path: Path, monkeypatch
+) -> None:
+    """Test workmux adds .workmux.yaml to the rplc config file"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create config file in proj_dir so it can be modified
+    config_file = proj_dir / "sample.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+main/resources/application.yml
+main/src/class.java
+scratchdir/
+""")
+
+    monkeypatch.chdir(proj_dir)
+
+    # Swap in
+    result = runner.invoke(
+        app,
+        [
+            "swapin",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(config_file),
+        ],
+    )
+    assert result.exit_code == 0
+
+    # Run workmux
+    result = runner.invoke(
+        app,
+        [
+            "workmux",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Added '.workmux.yaml'" in result.output
+
+    # Verify entry was added to config
+    config_content = config_file.read_text()
+    assert ".workmux.yaml" in config_content
+
+
+def test_workmux_no_duplicate_config_entry(
+    test_project: tuple[Path, Path], tmp_path: Path, monkeypatch
+) -> None:
+    """Test workmux doesn't add duplicate .workmux.yaml to config"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create config file with .workmux.yaml already present
+    config_file = proj_dir / "sample.md"
+    config_file.write_text("""# Development
+
+## rplc-config
+main/resources/application.yml
+main/src/class.java
+scratchdir/
+.workmux.yaml
+""")
+
+    monkeypatch.chdir(proj_dir)
+
+    # Swap in
+    result = runner.invoke(
+        app,
+        [
+            "swapin",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(config_file),
+        ],
+    )
+    assert result.exit_code == 0
+
+    # Run workmux
+    result = runner.invoke(
+        app,
+        [
+            "workmux",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "already in" in result.output
+
+    # Verify no duplicate was added
+    config_content = config_file.read_text()
+    assert config_content.count(".workmux.yaml") == 1
+
+
+def test_workmux_help() -> None:
+    """Test workmux --help shows correct info"""
+    runner = CliRunner()
+    result = runner.invoke(app, ["workmux", "--help"])
+
+    assert result.exit_code == 0
+    assert "workmux" in result.output
+    assert "post_create" in result.output or "direnv" in result.output
+
+
+def test_workmux_includes_venv_if_exists(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
+) -> None:
+    """Test workmux includes .venv/ in symlinks if directory exists"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create .venv directory
+    (proj_dir / ".venv").mkdir()
+
+    monkeypatch.chdir(proj_dir)
+
+    # Swap in first
+    runner.invoke(
+        app,
+        [
+            "swapin",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+
+    # Run workmux
+    result = runner.invoke(
+        app,
+        [
+            "workmux",
+            "--proj-dir",
+            str(proj_dir),
+            "--mirror-dir",
+            str(mirror_dir),
+            "--config",
+            str(test_config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    # Verify .venv/ is in the symlinks
+    workmux_file = proj_dir / ".workmux.yaml"
+    content = workmux_file.read_text()
+    assert ".venv/" in content
+
+
+def test_workmux_envrc_symlink_uses_post_create(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch, tmp_path: Path
+) -> None:
+    """Test workmux adds ln command to post_create when .envrc is a symlink"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create .envrc as a symlink
+    target = tmp_path / "dot.envrc"
+    target.write_text("# envrc content")
+    (proj_dir / ".envrc").symlink_to(target)
+
+    monkeypatch.chdir(proj_dir)
+
+    # Swap in first
+    runner.invoke(
+        app,
+        ["swapin", "--proj-dir", str(proj_dir), "--mirror-dir", str(mirror_dir), "--config", str(test_config_file)],
+    )
+
+    # Run workmux
+    result = runner.invoke(
+        app,
+        ["workmux", "--proj-dir", str(proj_dir), "--mirror-dir", str(mirror_dir), "--config", str(test_config_file)],
+    )
+
+    assert result.exit_code == 0
+
+    content = (proj_dir / ".workmux.yaml").read_text()
+    # Symlink: should have ln command in post_create
+    assert "ln -s $SOPS_PATH/dot.envrc .envrc" in content
+    # Should NOT be in symlink entries
+    lines = content.split("\n")
+    symlink_section = False
+    for line in lines:
+        if "symlink:" in line:
+            symlink_section = True
+        if symlink_section and line.strip() == "- .envrc":
+            raise AssertionError(".envrc should not be in symlink section when it's a symlink")
+
+
+def test_workmux_envrc_real_file_uses_symlink(
+    test_project: tuple[Path, Path], test_config_file: Path, monkeypatch
+) -> None:
+    """Test workmux adds .envrc to symlinks when it's a real file"""
+    proj_dir, mirror_dir = test_project
+    runner = CliRunner()
+
+    # Create .envrc as a real file (not symlink)
+    (proj_dir / ".envrc").write_text("# real envrc content")
+
+    monkeypatch.chdir(proj_dir)
+
+    # Swap in first
+    runner.invoke(
+        app,
+        ["swapin", "--proj-dir", str(proj_dir), "--mirror-dir", str(mirror_dir), "--config", str(test_config_file)],
+    )
+
+    # Run workmux
+    result = runner.invoke(
+        app,
+        ["workmux", "--proj-dir", str(proj_dir), "--mirror-dir", str(mirror_dir), "--config", str(test_config_file)],
+    )
+
+    assert result.exit_code == 0
+
+    content = (proj_dir / ".workmux.yaml").read_text()
+    # Real file: should NOT have ln command in post_create
+    assert "ln -s $SOPS_PATH/dot.envrc .envrc" not in content
+    # Should be in symlink entries
+    assert "- .envrc" in content

@@ -209,6 +209,78 @@ class ConfigParser:
         return modified
 
     @staticmethod
+    def add_config_entry(config_file: Path, entry: str) -> bool:
+        """
+        Add entry to ## rplc-config section if not already present.
+
+        Args:
+            config_file: Path to the configuration file
+            entry: The path entry to add (e.g., ".workmux.yaml")
+
+        Returns:
+            True if entry was added, False if already exists or section not found
+        """
+        if not config_file.exists():
+            return False
+
+        content = config_file.read_text()
+        lines = content.splitlines(keepends=True)
+
+        # Check if entry already exists (normalize: strip and remove trailing slash)
+        entry_normalized = entry.rstrip('/')
+        for line in lines:
+            stripped = line.strip().rstrip('/')
+            if stripped == entry_normalized:
+                return False
+
+        # Find the ## rplc-config section and track last content line
+        state = ParseState.SEARCHING_DEVELOPMENT
+        last_rplc_config_line = None
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            if state == ParseState.SEARCHING_DEVELOPMENT:
+                if re.match(r'^#\s+[Dd]evelopment', stripped) and not re.match(r'^#{2,}', stripped):
+                    state = ParseState.IN_DEVELOPMENT
+
+            elif state == ParseState.IN_DEVELOPMENT:
+                if stripped == "## rplc-config":
+                    state = ParseState.IN_RPLC_CONFIG
+                    last_rplc_config_line = i
+                elif re.match(r'^#{1,}\s+[Dd]evelopment', stripped):
+                    state = ParseState.DONE
+                elif re.match(r'^#\s+\w', stripped):
+                    state = ParseState.DONE
+
+            elif state == ParseState.IN_RPLC_CONFIG:
+                if re.match(r'^#{1,}\s+\w', stripped):
+                    if stripped == "## rplc-config":
+                        last_rplc_config_line = i
+                    elif re.match(r'^#{1,}\s+[Dd]evelopment', stripped):
+                        state = ParseState.DONE
+                    elif re.match(r'^#\s+\w', stripped):
+                        state = ParseState.DONE
+                    else:
+                        # Another ## heading, go back to IN_DEVELOPMENT
+                        state = ParseState.IN_DEVELOPMENT
+                else:
+                    # Track last non-empty content line in rplc-config
+                    if stripped and not stripped.startswith('#'):
+                        last_rplc_config_line = i
+
+        # If we never found rplc-config section
+        if last_rplc_config_line is None:
+            return False
+
+        # Insert directly after the last content line (no blank lines)
+        new_entry = entry + '\n'
+        lines.insert(last_rplc_config_line + 1, new_entry)
+
+        config_file.write_text(''.join(lines))
+        return True
+
+    @staticmethod
     def _remove_code_blocks(content: str) -> str:
         """Remove content between code fences (```...```) from markdown content"""
         pattern = r"```[^`]*```"
